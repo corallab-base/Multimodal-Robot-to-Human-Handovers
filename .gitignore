@@ -1,0 +1,15 @@
+__pycache__/
+
+.idea/
+.vscode/
+weights
+capture_pointcloud/
+*.ply
+*.npz
+tmp/
+*.png
+*.svg
+*.wav
+*.pth
+capture_pointcloud/front_data
+secrets/
