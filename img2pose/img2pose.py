@@ -101,7 +101,7 @@ class img2poseModel:
             self.fpn_model = self.fpn_model.to(self.device)
             self.fpn_model_without_ddp = self.fpn_model
 
-            print(f"Model will use {torch.cuda.device_count()} GPUs!")
+            # print(f"Model will use {torch.cuda.device_count()} GPUs!")
 
         if self.model_path is not None:
             self.load_saved_model(self.model_path)

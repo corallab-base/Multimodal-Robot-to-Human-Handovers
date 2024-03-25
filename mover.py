@@ -3,12 +3,18 @@ from matplotlib import pyplot as plt
 import torch
 import numpy as np
 import math
+import os
+from PIL import Image
+
+from gaze_utils import realsense as rs
 
 from gaze_utils.pc_utils import view_pc, depth2pc
 from gaze_utils.sshlib import get_glip, get_grasp
-from .rmp_utils import execute_RMP_path, setup
 
+import rtde_control
+import rtde_receive
 import robotiq_gripper
+# from .rmp_utils import execute_RMP_path, setup
 
 
 def rv2rpy(rx,ry,rz):
@@ -47,7 +53,6 @@ def rv2rpy(rx,ry,rz):
     gamma = math.atan2(r32/cb,r33/cb)
   
   return gamma, beta, alpha  
-
 
 def transform(depth, rgb, pose, K = np.array([[910.571960449219, 0, 649.206298828125], [0, 911.160827636719, 358.177185058594], [0, 0, 1]])):
   '''
@@ -102,7 +107,6 @@ def transform(depth, rgb, pose, K = np.array([[910.571960449219, 0, 649.20629882
     
   return transformed_pc, rgb
 
-
 def transform_point(pc, pose):
   '''
   Transform the given [x, y, z] array by the given UR5
@@ -133,8 +137,6 @@ def transform_point(pc, pose):
     
   return transformed_pc
 
-
-
 def transform_rot(rot_intrin, pose):
   '''
   Transform the given scipy Rotation by the given UR5
@@ -162,14 +164,103 @@ def transform_rot(rot_intrin, pose):
   # print('rpy', math.degrees(roll), math.degrees(pitch), math.degrees(yaw))
     
   return transformed_rot
-  
 
-def moveit(real_life, objname, partname, target_holder, ip_address='192.168.1.123'):
+rtde_c, rtde_r, gripper, wrist_cam = None, None, None, None
+
+# In camera coordinates: [(-)left-to-right(+), (-)up-to-down(+), (-)back-to-front(+), rotvec ]
+cam_tool_offset = [-0.01, -0.075, 0.05, 0, 0, 0]
+right = [60.1, -167.45, -62.0, 49.6, 149.6, 0.1]
+left = [125.9, -158.6, -91.7, 69.97, 8.71, 0.35]
+front = [164.88, -46.17, -124.62, -53.24, 101.27, -10.25]
+
+def deg_to_rad(l):
+    return list(map(math.radians, l))
+
+def wait_for_file(filename):
+    while True:
+        file_exists = os.path.exists(filename)
+        if file_exists: break
+        time.sleep(0.2)
+
+def get_cam_pose():
     '''
-    Moves the UR5 (with wrist mounted depth camera) to different poses in order to construct a more complete pointcloud
-    than one perspective would provide
+    Get the current pose of the camera lens in UR5 base coordinates
     '''
-    import os
+    # Note: the following statement would be identical to rtde_r.getActualTCPPose()
+    # if not for our custom-defined tcp_offset
+    fk = rtde_c.getForwardKinematics(rtde_r.getActualQ(), tcp_offset=cam_tool_offset)
+    return fk
+
+def capture_wrist_cam():
+    global wrist_cam
+    col, depth, _, _ = wrist_cam.get_frames(rotate=False, viz=False)
+    return col, depth
+
+def grabbable_region(rgb, depth, partname, objname):
+    '''
+    Return grabbable region from image
+    '''
+    import cv2
+
+    whitelist_obj = np.zeros(shape=depth.shape, dtype=bool)
+    whitelist_part = np.zeros(shape=depth.shape, dtype=bool)
+
+    bbs_obj, ann_obj = get_glip(objname, cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
+
+    # Get heatmap
+    wait_for_file('heatmap.pth')
+    heatmap = torch.load('heatmap.pth')
+    print('loaded heatmap', heatmap.dtype, heatmap.shape)
+
+    # Merge object regions and heatmap
+    intersection_scores = []
+    for bb in bbs_obj:
+        x1, y1, x2, y2 = bb
+        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2) 
+        intersection_scores.append(heatmap[y1:y2, x1:x2] / ((y2 - y1) * x2 - x1))
+
+    # Get best obejct regions
+    bbs_obj = [bbs_obj[np.argmax(intersection_scores)]]
+
+    # Get object region
+    for bb in bbs_obj:
+        x1, y1, x2, y2 = bb
+        x1, y1, x2, y2 = int(x1) - 10, int(y1) - 40, int(x2) + 10, int(y2) + 40
+        whitelist_obj[y1:y2, x1:x2] = True
+    
+    # Get part region
+    if partname is not None:
+        bbs_part, ann_part = get_glip(partname, cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
+        for bb in bbs_part:
+            x1, y1, x2, y2 = bb
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2) 
+            whitelist_part[y1:y2, x1:x2] = True
+    else:
+        whitelist_part = True
+
+    whitelist_part = whitelist_obj & whitelist_part
+
+    from matplotlib import pyplot as plt
+
+    f, axarr = plt.subplots(1, 2) 
+    f.set_size_inches(13, 4)
+    plt.title("Detected Object and Part")
+
+    bgr = rgb[..., ::-1]
+
+    axarr[0].imshow(bgr * np.dstack((whitelist_obj, whitelist_obj, whitelist_obj)))
+    if partname is not None:
+        axarr[1].imshow(bgr * np.dstack((whitelist_part, whitelist_part, whitelist_part)))
+      
+    plt.pause(0.0001)
+
+    return whitelist_obj, whitelist_obj & whitelist_part 
+
+def init(real_life):
+
+    global rtde_c, rtde_r, gripper, wrist_cam
+
+    ip_address='192.168.1.123'
 
     if real_life:
       # Delete outputs
@@ -183,130 +274,44 @@ def moveit(real_life, objname, partname, target_holder, ip_address='192.168.1.12
     try: os.remove('capture_pointcloud/merged_pc.npz')
     except OSError: pass
 
-    import rtde_control
-    import rtde_receive
-    from gaze_utils import realsense as rs
-    import os
-    from PIL import Image
-
     if real_life:
-    # Setup for real robot
-      rtde_c = rtde_control.RTDEControlInterface(ip_address)
-      rtde_r = rtde_receive.RTDEReceiveInterface(ip_address)
-      gripper = robotiq_gripper.RobotiqGripper()
-      gripper.connect(ip_address, 63352)
+        wrist_cam = rs.RSCapture(serial_number='044122070299', use_meters=False, preset='Default')
 
- 
-    # In camera coordinates: [(-)left-to-right(+), (-)up-to-down(+), (-)back-to-front(+), rotvec ]
-    cam_tool_offset = [-0.01, -0.075, 0.05, 0, 0, 0]
+        # Setup for real robot
+        rtde_c = rtde_control.RTDEControlInterface(ip_address)
+        rtde_r = rtde_receive.RTDEReceiveInterface(ip_address)
+        
+        gripper = robotiq_gripper.RobotiqGripper()
+        gripper.connect(ip_address, 63352)
+        gripper.activate(auto_calibrate=False)
 
-    right = [60.1, -167.45, -62.0, 49.6, 149.6, 0.1]
-    left = [125.9, -158.6, -91.7, 69.97, 8.71, 0.35]
-    front = [164.88, -46.17, -124.62, -53.24, 101.27, -10.25]
+        # Open gripper
+        gripper.move(gripper.get_open_position(), 64, 1)
 
-    def deg_to_rad(l):
-        return list(map(math.radians, l))
+        # Go to front position
+        rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
+        front_cam_pose = get_cam_pose()
+        front_rgb, front_depth = capture_wrist_cam()
+        torch.save((front_cam_pose, front_rgb, front_depth), 'capture_pointcloud/front_data')
+        Image.fromarray(front_rgb).save('capture_pointcloud/front.png')
+
+def moveit(real_life, objname, partname, target_holder, ):
+    '''
+    Moves the UR5 (with wrist mounted depth camera) to different poses in order to construct a more complete pointcloud
+    than one perspective would provide
+    '''
     
-    def get_cam_pose():
-        '''
-        Get the current pose of the camera lens in UR5 base coordinates
-        '''
-        # Note: the following statement would be identical to rtde_r.getActualTCPPose()
-        # if not for our custom-defined tcp_offset
-        fk = rtde_c.getForwardKinematics(rtde_r.getActualQ(), tcp_offset=cam_tool_offset)
-        return fk
-    
-    def find_obj_in_depth(rgb, depth):
-      import cv2
-
-      whitelist_obj = np.zeros(shape=depth.shape, dtype=bool)
-      whitelist_part = np.zeros(shape=depth.shape, dtype=bool)
-
-      bbs_obj, ann_obj = get_glip(objname, cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
-
-      def wait_for_file(filename):
-        while True:
-            file_exists = os.path.exists(filename)
-            if file_exists: break
-            time.sleep(0.2)
-
-      wait_for_file('heatmap.pth')
-      heatmap = torch.load('heatmap.pth')
-      print('loaded heatmap', heatmap.dtype, heatmap.shape)
-
-      intersection_scores = []
-      for bb in bbs_obj:
-        x1, y1, x2, y2 = bb
-        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2) 
-        intersection_scores.append(heatmap[y1:y2, x1:x2] / ((y2 - y1) * x2 - x1))
-
-      bbs_obj = [bbs_obj[np.argmax(intersection_scores)]]
-
-      for bb in bbs_obj:
-        x1, y1, x2, y2 = bb
-        # print('slice index', x1, y1, x2, y2)
-        x1, y1, x2, y2 = int(x1) - 10, int(y1) - 40, int(x2) + 10, int(y2) + 40
-        whitelist_obj[y1:y2, x1:x2] = True
-
-      if partname is not None:
-        bbs_part, ann_part = get_glip(partname, cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
-        for bb in bbs_part:
-          x1, y1, x2, y2 = bb
-          # print('slice index', x1, y1, x2, y2)
-          x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2) 
-          whitelist_part[y1:y2, x1:x2] = True
-      else:
-        whitelist_part = True
-
-      whitelist_part = whitelist_obj & whitelist_part
-
-      from matplotlib import pyplot as plt
-
-      f, axarr = plt.subplots(1, 2) 
-      f.set_size_inches(13, 4)
-      plt.title("Detected Object and Part")
-
-      bgr = rgb[..., ::-1]
-
-      axarr[0].imshow(bgr * np.dstack((whitelist_obj, whitelist_obj, whitelist_obj)))
-      if partname is not None:
-        axarr[1].imshow(bgr * np.dstack((whitelist_part, whitelist_part, whitelist_part)))
-      
-      plt.pause(0.0001)
-
-      return whitelist_obj, whitelist_obj & whitelist_part 
-    
-    if real_life:
-      wrist_cam = rs.RSCapture(serial_number='044122070299', use_meters=False, preset='Default')
-
-    def capture_wrist_cam():
-        col, depth, _, _ = wrist_cam.get_frames(rotate=False, viz=False)
-        return col, depth
-
-
-    if real_life:
-      # Open gripper (async)
-      # print('Gripper max speed, max pos, max force', gripper._max_speed, gripper._max_position, gripper._max_force)
-    
-      gripper.activate(auto_calibrate=False)
-      gripper.move(gripper.get_open_position(), 64, 1)
-
-    # Front
-    if real_life:
-      rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
-      front_cam_pose = get_cam_pose()
-      front_rgb, front_depth = capture_wrist_cam()
-      torch.save((front_cam_pose, front_rgb, front_depth), 'capture_pointcloud/front_data')
-      Image.fromarray(front_rgb).save('capture_pointcloud/front.png')
-    
+    global rtde_c, rtde_r, gripper
+          
     front_cam_pose, front_rgb, front_depth = torch.load('capture_pointcloud/front_data')
 
-    whitelist_obj, whitelist_part = find_obj_in_depth(front_rgb, front_depth)
+    whitelist_obj, whitelist_part = grabbable_region(front_rgb, front_depth, partname, objname)
     
     depth_obj = front_depth.copy()
-    
     depth_obj[~whitelist_obj] = 0.0
 
+
+    # Resolve what is grabbale and what to avoid
     if partname is None:
       grab_mask = depth_obj
     else:
@@ -350,13 +355,10 @@ def moveit(real_life, objname, partname, target_holder, ip_address='192.168.1.12
 
     best_grasp_rot = transform_rot(best_grasp_rot, front_cam_pose)
     tool_vec = best_grasp_rot.apply([0, 0, 0.06])
-    tool_z_height = abs(tool_vec[2])
-    print('tool vector direction', tool_vec)
+    # print('tool vector direction', tool_vec)
 
     best_grasp = transform_point(best_grasp, front_cam_pose).squeeze()
-    # best_grasp += np.array([0, 0, tool_z_height])
-    best_grasp[2] = max(best_grasp[2], 0.195) # Any height below 0.20 intersects table
-
+    # best_grasp[2] = max(best_grasp[2], 0.195) # Any height below 0.20 intersects table
 
     print('Best robot grasp pose', list(best_grasp) + list(best_grasp_rot.as_rotvec()))
     
@@ -373,26 +375,28 @@ def moveit(real_life, objname, partname, target_holder, ip_address='192.168.1.12
         index += 10
       rtde_c.moveJ(path[-1], 1.5, .9, asychronous=False)
 
+
     if real_life:
-      rtde_c.moveL(list(best_grasp - 2 * tool_vec + np.array([0, 0, -0.02])) + list(best_grasp_rot.as_rotvec()), 0.3, 0.3) # [3.14, 0, 0]
+      
+        # Go to staging
+        rtde_c.moveL(list(best_grasp - 2 * tool_vec + np.array([0, 0, -0.02])) + list(best_grasp_rot.as_rotvec()), 0.3, 0.3) # [3.14, 0, 0]
 
-      rtde_c.moveL(list(best_grasp + 0.5 * tool_vec + np.array([-0, 0, 0])) + list(best_grasp_rot.as_rotvec()), 0.3, 0.3) # [3.14, 0, 0]
+        # Go to final
+        rtde_c.moveL(list(best_grasp + 0.5 * tool_vec + np.array([-0, 0, 0])) + list(best_grasp_rot.as_rotvec()), 0.3, 0.3) # [3.14, 0, 0]
 
-      # Close gripper
-      final_pos, status = gripper.move_and_wait_for_pos(gripper.get_closed_position(), 100, 1)
+        # Close gripper
+        # final_pos, status = gripper.move_and_wait_for_pos(gripper.get_closed_position(), 100, 1)
 
-      # print('Gripper grasp result:', final_pos, status)
+        # if status == robotiq_gripper.RobotiqGripper.ObjectStatus.STOPPED_INNER_OBJECT:
+        #     print("Gripper grasped an object")
+        #     final_pos, status = gripper.move_and_wait_for_pos(gripper.get_open_position(), 100, 1)
 
-      if status == robotiq_gripper.RobotiqGripper.ObjectStatus.STOPPED_INNER_OBJECT:
-        print("Gripper grasped an object")
-        final_pos, status = gripper.move_and_wait_for_pos(gripper.get_open_position(), 100, 1)
+        # else:
+        #     final_pos, status = gripper.move_and_wait_for_pos(gripper.get_open_position(), 100, 1)
+        #     print('Gripper felt nothing')
 
-        # rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
-      else:
-        final_pos, status = gripper.move_and_wait_for_pos(gripper.get_open_position(), 100, 1)
-        print('Gripper felt nothing')
-
-      rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
+        # Move back out to front
+        rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
     
     plt.show()
 

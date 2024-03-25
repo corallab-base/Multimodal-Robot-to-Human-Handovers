@@ -16,7 +16,7 @@ def connect():
     print('SSH connect to corallab server...')
     ssh.connect(hostname='10.164.8.169', username='corallab-s1', pkey=k)
     sftp = ssh.open_sftp()
-    print('SSH connect DONE')
+    print('    ...Connected!')
 
 
 def get_grasp(rgb, depth, mask, avoid_hands):

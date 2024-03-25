@@ -98,6 +98,33 @@ def draw_gaussian(image, x, y, sigma=10, amplitude=1.0):
     
     return image
 
+
+def spherical2cartesial(x): 
+    return -np.cos(x[1]) * np.cos(x[0]), np.cos(x[1]) * np.sin(x[0]), np.sin(x[1])
+
+def interpolate_images(img1, img2, gradient):
+    """
+    Interpolate between two images using a gradient mask.
+
+    Parameters:
+    - img1: First image as an NxMx3 numpy array.
+    - img2: Second image as an NxMx3 numpy array.
+    - gradient: NxM array of blend ratios, where 0 means all of img1 and 1 means all of img2.
+
+    Returns:
+    - Interpolated image as an NxMx3 numpy array.
+    """
+    # Ensure the gradient is in the shape NxMx1 to perform element-wise multiplication correctly
+    gradient = gradient[:, :, np.newaxis]
+
+    # Ensure gradient values are within [0, 1]
+    np.clip(gradient, 0, 1, out=gradient)
+
+    # Interpolate between the images
+    interpolated_img = img1 * (1 - gradient) + img2 * gradient
+
+    return interpolated_img
+
 threed_points = np.load('img2pose/pose_references/reference_3d_68_points_trans.npy')
 
 transform = transforms.Compose([transforms.ToTensor()])
@@ -132,20 +159,13 @@ def free_model():
     torch.cuda.empty_cache()
     gc.collect()
 
-def spherical2cartesial(x): 
-    return -np.cos(x[1]) * np.cos(x[0]), np.cos(x[1]) * np.sin(x[0]), np.sin(x[1])
-
-vised = False
-ax = None
-ax2 = None
-
-from scipy.signal import savgol_filter
 
 heatmap = np.zeros((720 // 8, 1280 // 8), dtype=float)
+white = np.full_like(heatmap, 255)
 
 ps = [(0, 0)] * 9
 
-def infer(img, threshold = 0.9, viz=True): 
+def infer(img, display_image, threshold = 0.9, viz=True): 
     global img2pose_model, heatmap, ps
 
 
@@ -168,24 +188,9 @@ def infer(img, threshold = 0.9, viz=True):
             poses.append(pose_pred / np.array((1., 1., 1., 20., 20., 20.)))
             bboxes.append(bbox)
 
-    # render_plot(img.copy(), poses, bboxes)
-
-    global vised, ax, ax2
-    if not vised:
-        vised = True
-        # ax = plt.gcf().add_subplot(121, projection='3d')
-        # ax2 = plt.gcf().add_subplot(111)
-
-    # print('poses', poses)
 
     from mpl_toolkits.mplot3d import Axes3D
-
-    # ax.clear()
-    # ax.set_xlim(-1, 1) 
-    # ax.set_ylim(-1, 1) 
-    # ax.set_zlim(-1, 1) 
-
-    # ax.set_title('People pose and gazes')
+    # render_plot(img.copy(), poses, bboxes)    
 
     if len(poses) > 1:
         print('Warning, more than one face detected')
@@ -194,19 +199,16 @@ def infer(img, threshold = 0.9, viz=True):
         # Unpack pose components
         vector_x, vector_y, vector_z, x, y, z = pose
         x, y, z = 0, 0, 0
-        # vector_x, vector_y, vector_z = spherical2cartesial([vector_x, vector_y, vector_z])\
-        from scipy.spatial.transform import Rotation
-
-        def convert_to_unit(rotvec):
-            rotvec = Rotation.from_rotvec(rotvec)
-            return rotvec.apply([0, 0, 1])
-            # return np.array([angle[0], -angle[1], -angle[2]])
 
         rotvec = Rotation.from_rotvec([vector_x, vector_y, vector_z])
         vector_x, vector_y, vector_z = rotvec.as_euler('xyz')
-    
-        vector_x, vector_y, vector_z = convert_to_unit([vector_x, vector_y, vector_z])
 
+        # ax = plt.gcf().add_subplot(121, projection='3d')
+        # ax.clear()
+        # ax.set_xlim(-1, 1) 
+        # ax.set_ylim(-1, 1) 
+        # ax.set_zlim(-1, 1) 
+        
         # # Plot the pose as a point
         # ax.scatter(x, y, z, color='blue', s=100, label='Pose')
 
@@ -215,7 +217,12 @@ def infer(img, threshold = 0.9, viz=True):
         # ray_length = 1
         # ax.quiver(x, y, z, vector_x, vector_y, vector_z, length=ray_length, color='red', arrow_length_ratio=0.1, label='Ray')
         
-
+        # Setting labels for axes
+        # ax.set_xlabel('Left Right X')
+        # ax.set_ylabel('Front Back Y')
+        # ax.set_zlabel('Up Down Z')
+        
+        # Time series stuff
         ps.append((vector_x, vector_y))
 
         if len(ps) > 9:
@@ -242,30 +249,20 @@ def infer(img, threshold = 0.9, viz=True):
                                 heatmap.shape[0] * smooth_y, 
                                 heatmap.shape[1] / 15, 1)
     
-
-    # Setting labels for axes
-    # ax.set_xlabel('Left Right X')
-    # ax.set_ylabel('Front Back Y')
-    # ax.set_zlabel('Up Down Z')
-
     if viz:
         cv2.namedWindow('heatmap', cv2.WINDOW_KEEPRATIO)
-        cv2.imshow('heatmap', heatmap)
+        cv2.imshow('heatmap', interpolate_images(white, interpolate_images, heatmap))
         cv2.resizeWindow('heatmap', heatmap.shape[1] * 7, heatmap.shape[0] * 7)
         cv2.waitKey(1)
 
     # plt.imshow(heatmap)
     # plt.pause(0.001)
-
-    # return poses, bboxes
             
     return heatmap
 
 if __name__ == "__main__":
     v_reader = RSCapture(serial_number='123122060050', dont_set_depth_preset=True)
-    # v_reader = WebCamCapture()
 
     for frame in v_reader:
         color_image, depth_image, depth_frame, color_frame = frame
-        # color_image = frame
         infer(color_image, viz=True)
