@@ -189,7 +189,8 @@ def record_and_parse(text=None, recording_done_func=None):
         torch.cuda.empty_cache()
         text = parse_audio('gaze_utils/audio.wav')
     else:
-        time.sleep(0.5)
+        print('Simulating prompt for 4 seconds')
+        time.sleep(4)
         recording_done_func()
         
     print('Input Sentence:', text)

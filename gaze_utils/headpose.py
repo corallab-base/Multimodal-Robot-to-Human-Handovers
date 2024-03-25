@@ -102,7 +102,7 @@ def draw_gaussian(image, x, y, sigma=10, amplitude=1.0):
 def spherical2cartesial(x): 
     return -np.cos(x[1]) * np.cos(x[0]), np.cos(x[1]) * np.sin(x[0]), np.sin(x[1])
 
-def interpolate_images(img1, img2, gradient):
+def interpolate_image(img1, img2, gradient):
     """
     Interpolate between two images using a gradient mask.
 
@@ -118,10 +118,10 @@ def interpolate_images(img1, img2, gradient):
     gradient = gradient[:, :, np.newaxis]
 
     # Ensure gradient values are within [0, 1]
-    np.clip(gradient, 0, 1, out=gradient)
+    gradient = np.clip(gradient, 0, 1)
 
     # Interpolate between the images
-    interpolated_img = img1 * (1 - gradient) + img2 * gradient
+    interpolated_img  = img2 * (1 - gradient) + img1 * gradient
 
     return interpolated_img
 
@@ -161,7 +161,7 @@ def free_model():
 
 
 heatmap = np.zeros((720 // 8, 1280 // 8), dtype=float)
-white = np.full_like(heatmap, 255)
+white = np.full((720, 1280, 1), 255, dtype=float)
 
 ps = [(0, 0)] * 9
 
@@ -238,21 +238,22 @@ def infer(img, display_image, threshold = 0.9, viz=True):
                 p = (1 - alpha) * p + alpha * thing
             return p
         
-        smooth_x = ema(xx, 0.6)
-        smooth_y = ema(yy, 0.6)
+        smooth_y = ema(xx, 0.6)
+        smooth_x = ema(yy, 0.6)
 
-        smooth_x = smooth_x * 1.5 + 0.5
-        smooth_y = -smooth_y * 3 + 0.7 # Flip the up/down axis, and bias down
+        smooth_y = smooth_y * 1.7 + 0.5
+        smooth_x = smooth_x * 2 + 0.5 
 
         heatmap = draw_gaussian(heatmap, 
                                 heatmap.shape[1] * smooth_x, 
                                 heatmap.shape[0] * smooth_y, 
-                                heatmap.shape[1] / 15, 1)
+                                heatmap.shape[1] / 15 / 1.5, 1)
     
     if viz:
+        heatmap2 = cv2.resize(heatmap, (heatmap.shape[1] * 8, heatmap.shape[0] * 8))
         cv2.namedWindow('heatmap', cv2.WINDOW_KEEPRATIO)
-        cv2.imshow('heatmap', interpolate_images(white, interpolate_images, heatmap))
-        cv2.resizeWindow('heatmap', heatmap.shape[1] * 7, heatmap.shape[0] * 7)
+        cv2.imshow('heatmap', interpolate_image(white, display_image, heatmap2).astype(np.uint8))
+        cv2.resizeWindow('heatmap', heatmap2.shape[1], heatmap2.shape[0])
         cv2.waitKey(1)
 
     # plt.imshow(heatmap)
@@ -265,4 +266,4 @@ if __name__ == "__main__":
 
     for frame in v_reader:
         color_image, depth_image, depth_frame, color_frame = frame
-        infer(color_image, viz=True)
+        infer(color_image, color_image, viz=True)

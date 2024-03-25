@@ -1,3 +1,5 @@
+import inspect
+import subprocess
 import time
 from matplotlib import pyplot as plt
 import torch
@@ -196,7 +198,7 @@ def capture_wrist_cam():
     col, depth, _, _ = wrist_cam.get_frames(rotate=False, viz=False)
     return col, depth
 
-def grabbable_region(rgb, depth, partname, objname):
+def grabbable_region(rgb, depth, partname, objname, largen_part):
     '''
     Return grabbable region from image
     '''
@@ -210,22 +212,28 @@ def grabbable_region(rgb, depth, partname, objname):
     # Get heatmap
     wait_for_file('heatmap.pth')
     heatmap = torch.load('heatmap.pth')
-    print('loaded heatmap', heatmap.dtype, heatmap.shape)
+
+    heatmap = cv2.resize(heatmap, (heatmap.shape[1] * 8, heatmap.shape[0] * 8))
+
+    assert heatmap.shape[0:2] == rgb.shape[0:2], str(heatmap.shape) + ' ' + str(rgb.shape)
 
     # Merge object regions and heatmap
     intersection_scores = []
     for bb in bbs_obj:
         x1, y1, x2, y2 = bb
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2) 
-        intersection_scores.append(heatmap[y1:y2, x1:x2] / ((y2 - y1) * x2 - x1))
+        intersection_scores.append(heatmap[y1:y2, x1:x2].sum() / ((y2 - y1) * x2 - x1))
 
-    # Get best obejct regions
+    # Get best object regions
     bbs_obj = [bbs_obj[np.argmax(intersection_scores)]]
 
     # Get object region
     for bb in bbs_obj:
         x1, y1, x2, y2 = bb
-        x1, y1, x2, y2 = int(x1) - 10, int(y1) - 40, int(x2) + 10, int(y2) + 40
+        if largen_part:
+          x1, y1, x2, y2 = int(x1) - 10, int(y1) - 20, int(x2) + 10, int(y2) + 20
+        else:
+           x1, y1, x2, y2 = int(x1) + 10, int(y1) + 20, int(x2) - 10, int(y2) - 20
         whitelist_obj[y1:y2, x1:x2] = True
     
     # Get part region
@@ -233,7 +241,7 @@ def grabbable_region(rgb, depth, partname, objname):
         bbs_part, ann_part = get_glip(partname, cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
         for bb in bbs_part:
             x1, y1, x2, y2 = bb
-            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2) 
+            x1, y1, x2, y2 = int(x1) - 10, int(y1) - 10, int(x2) + 10, int(y2) + 10 
             whitelist_part[y1:y2, x1:x2] = True
     else:
         whitelist_part = True
@@ -252,7 +260,7 @@ def grabbable_region(rgb, depth, partname, objname):
     if partname is not None:
         axarr[1].imshow(bgr * np.dstack((whitelist_part, whitelist_part, whitelist_part)))
       
-    plt.pause(0.0001)
+    plt.show()
 
     return whitelist_obj, whitelist_obj & whitelist_part 
 
@@ -275,7 +283,7 @@ def init(real_life):
     except OSError: pass
 
     if real_life:
-        wrist_cam = rs.RSCapture(serial_number='044122070299', use_meters=False, preset='Default')
+        # wrist_cam = rs.RSCapture(serial_number='044122070299', use_meters=False, preset='Default')
 
         # Setup for real robot
         rtde_c = rtde_control.RTDEControlInterface(ip_address)
@@ -291,9 +299,12 @@ def init(real_life):
         # Go to front position
         rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
         front_cam_pose = get_cam_pose()
-        front_rgb, front_depth = capture_wrist_cam()
+
+        from remote_cam import get_image, get_depth
+        front_rgb = np.rot90(get_image(), 2)
+        torch.save(front_rgb, 'capture_pointcloud/front_rgb')
+        front_depth = np.rot90(get_depth(), 2)
         torch.save((front_cam_pose, front_rgb, front_depth), 'capture_pointcloud/front_data')
-        Image.fromarray(front_rgb).save('capture_pointcloud/front.png')
 
 def moveit(real_life, objname, partname, target_holder, ):
     '''
@@ -302,10 +313,16 @@ def moveit(real_life, objname, partname, target_holder, ):
     '''
     
     global rtde_c, rtde_r, gripper
+
+    try: os.remove('arm_target.txt') 
+    except FileNotFoundError: pass
+    try: os.remove('robot_grasp_viz.png')
+    except FileNotFoundError: pass
           
     front_cam_pose, front_rgb, front_depth = torch.load('capture_pointcloud/front_data')
 
-    whitelist_obj, whitelist_part = grabbable_region(front_rgb, front_depth, partname, objname)
+    whitelist_obj, whitelist_part = grabbable_region(front_rgb, front_depth, partname, objname, 
+                                                     largen_part = target_holder == 'robot')
     
     depth_obj = front_depth.copy()
     depth_obj[~whitelist_obj] = 0.0
@@ -338,11 +355,17 @@ def moveit(real_life, objname, partname, target_holder, ):
     '''
 
     # Get best grasp
-    best_grasp, best_grasp_rot = get_grasp(front_rgb, front_depth, 
-                                            mask=grab_mask, 
-                                            avoid_hands=partname is None # Case 1, avoid hands
-                                            )
+    avoid_hands = partname is None
+
+    pc_full, pred_grasps_cam, scores, contact_pts, pc_colors, hand_pcs, hand_cols = \
+              get_grasp(front_rgb, front_depth, 
+                        mask=grab_mask, 
+                        avoid_hands=avoid_hands # Case 1, avoid hands
+                        )
     
+    from grasp import best_grasp
+
+    best_grasp, best_grasp_rot = best_grasp(pc_full, pred_grasps_cam, scores, contact_pts, pc_colors, hand_pcs, hand_cols, avoid_hands)
 
     # pc_world, col_world = transform(depth_obj, front_rgb, front_cam_pose)
     # pcs_world_obj += [pc_world]
@@ -360,9 +383,14 @@ def moveit(real_life, objname, partname, target_holder, ):
     best_grasp = transform_point(best_grasp, front_cam_pose).squeeze()
     # best_grasp[2] = max(best_grasp[2], 0.195) # Any height below 0.20 intersects table
 
-    print('Best robot grasp pose', list(best_grasp) + list(best_grasp_rot.as_rotvec()))
+    def nicelist(li):
+       return ', '.join([f'{l:.3f}' for l in li])
     
-    def goto():
+    print('Best robot grasp pose', nicelist(best_grasp) + ', ' + nicelist(best_grasp_rot.as_rotvec()))
+    
+    def gotoss():
+      # from capture_pointcloud.rmp_utils import execute_RMP_path
+
       # Setup for Sim
       gym, sim, env, viewer, camera_handle, arm, dof_states = setup()
       # I believe execute_RMP_path takes in rads, but double check.
@@ -376,29 +404,22 @@ def moveit(real_life, objname, partname, target_holder, ):
       rtde_c.moveJ(path[-1], 1.5, .9, asychronous=False)
 
 
-    if real_life:
-      
+    if real_life:      
         # Go to staging
-        rtde_c.moveL(list(best_grasp - 2 * tool_vec + np.array([0, 0, -0.02])) + list(best_grasp_rot.as_rotvec()), 0.3, 0.3) # [3.14, 0, 0]
+        stage = list(best_grasp - 2 * tool_vec) + list(best_grasp_rot.as_rotvec())
+        final = list(best_grasp + 0.2 * tool_vec) + list(best_grasp_rot.as_rotvec())
 
-        # Go to final
-        rtde_c.moveL(list(best_grasp + 0.5 * tool_vec + np.array([-0, 0, 0])) + list(best_grasp_rot.as_rotvec()), 0.3, 0.3) # [3.14, 0, 0]
+        with open('arm_target.txt', 'w') as file:
+          file.write(str(stage) + '\n' + str(final))
+          print('arm_target.txt saved')
 
-        # Close gripper
-        # final_pos, status = gripper.move_and_wait_for_pos(gripper.get_closed_position(), 100, 1)
 
-        # if status == robotiq_gripper.RobotiqGripper.ObjectStatus.STOPPED_INNER_OBJECT:
-        #     print("Gripper grasped an object")
-        #     final_pos, status = gripper.move_and_wait_for_pos(gripper.get_open_position(), 100, 1)
+        # print('Execute Path')
+        # result = subprocess.run('/home/corallab/anaconda3/envs/handover/bin/python goto.py', shell=True, capture_output=True, text=True)
+        # print(result)
 
-        # else:
-        #     final_pos, status = gripper.move_and_wait_for_pos(gripper.get_open_position(), 100, 1)
-        #     print('Gripper felt nothing')
-
-        # Move back out to front
-        rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
-    
     plt.show()
+    
 
     # Consolidate
     # pcs_combined = np.concatenate(pcs_world_obj, axis=0) # [N, 3]

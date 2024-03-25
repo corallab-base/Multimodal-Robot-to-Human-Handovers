@@ -125,7 +125,7 @@ class RSCapture:
 
             def rotate180(image):
                 # Flip y only. Do nothing to X so that it is mirrored
-                return image[::-1, : ,...]
+                return image[::-1, ::-1 ,...]
 
             if rotate:
                 return rotate180(color_image), rotate180(depth_image), depth_frame, color_frame

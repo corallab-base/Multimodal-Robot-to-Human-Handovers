@@ -1,0 +1,1 @@
+python main.py --real true --gaze False --prompt "Give me the banana" && python goto.py
