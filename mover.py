@@ -230,18 +230,19 @@ def grabbable_region(rgb, depth, partname, objname, largen_part):
     # Get object region
     for bb in bbs_obj:
         x1, y1, x2, y2 = bb
-        if largen_part:
-          x1, y1, x2, y2 = int(x1) - 10, int(y1) - 20, int(x2) + 10, int(y2) + 20
-        else:
-           x1, y1, x2, y2 = int(x1) + 10, int(y1) + 20, int(x2) - 10, int(y2) - 20
+        x1, y1, x2, y2 = int(x1) - 10, int(y1) - 20, int(x2) + 10, int(y2) + 20
         whitelist_obj[y1:y2, x1:x2] = True
     
     # Get part region
     if partname is not None:
-        bbs_part, ann_part = get_glip(partname, cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB))
+        bbs_part, ann_part = get_glip(partname, cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)) # rgb[y1:y2, x1:x2]
         for bb in bbs_part:
             x1, y1, x2, y2 = bb
-            x1, y1, x2, y2 = int(x1) - 10, int(y1) - 10, int(x2) + 10, int(y2) + 10 
+            if largen_part:
+              x1, y1, x2, y2 = int(x1) - 10, int(y1) - 10, int(x2) + 10, int(y2) + 10
+            else:
+              x1, y1, x2, y2 = int(x1) + 10, int(y1) + 10, int(x2) - 10, int(y2) - 10
+
             whitelist_part[y1:y2, x1:x2] = True
     else:
         whitelist_part = True
@@ -251,8 +252,12 @@ def grabbable_region(rgb, depth, partname, objname, largen_part):
     from matplotlib import pyplot as plt
 
     f, axarr = plt.subplots(1, 2) 
-    f.set_size_inches(13, 4)
+    f.set_size_inches(13, 5)
     plt.title("Detected Object and Part")
+    button_ax = plt.axes([0.4, 0.05, 0.3, 0.1]) 
+    from matplotlib.widgets import Button
+    button = Button(button_ax, 'Continue', color='gainsboro', hovercolor='white')
+    button.on_clicked(lambda event: plt.close())
 
     bgr = rgb[..., ::-1]
 
@@ -330,16 +335,17 @@ def moveit(real_life, objname, partname, target_holder, ):
 
     # Resolve what is grabbale and what to avoid
     if partname is None:
-      grab_mask = depth_obj
+      grab_mask = whitelist_obj.copy()
     else:
       if target_holder == 'robot':
-        depth_part = front_depth.copy()
-        depth_part[~(whitelist_obj & whitelist_part)] = 0.0
-        grab_mask = depth_part
+        grab_mask = whitelist_obj.copy()
+        grab_mask[~(whitelist_obj & whitelist_part)] = 0.0
       elif target_holder == 'human':
-        depth_notpart = front_depth.copy()
-        depth_notpart[~(whitelist_obj & ~whitelist_part)] = 0.0
-        grab_mask = depth_notpart
+        grab_mask = whitelist_obj.copy()
+        grab_mask[~(whitelist_obj & ~whitelist_part)] = 0.0
+
+    # plt.imshow(front_rgb * grab_mask[..., None])
+    # plt.show()
 
     # K = np.array([[910.571960449219, 0, 649.206298828125], [0, 911.160827636719, 358.177185058594]])
     # pc, col = depth2pc(grab_mask, K, rgb=front_rgb)

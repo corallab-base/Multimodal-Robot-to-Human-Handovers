@@ -73,7 +73,7 @@ def get_grasp(rgb, depth, mask, avoid_hands):
         # Wait for human grasp to come through
         for _ in range(100):
             # sftp.get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/results/hand_predictions_INPUT' +  unique + '.npz', 'tmp/grasp_hand_res' + unique + '.npz')
-            succ = get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/results/hand_predictions_INPUT' +  unique + '.npz', 'tmp/grasp_hand_res' + unique + '.npz')
+            succ = get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/results/hand_predictions_INPUT' +  unique + '.npz', 'tmp/grasp_hand_res.npz')
             if succ: break
             print('    wait for HAND POSITION')
             
@@ -83,7 +83,7 @@ def get_grasp(rgb, depth, mask, avoid_hands):
     
         print("    Got human hand position")
 
-        dataa = np.load('tmp/grasp_hand_res' + unique + '.npz', allow_pickle=True)
+        dataa = np.load('tmp/grasp_hand_res.npz', allow_pickle=True)
         hand_pcs, hand_cols = \
             dataa['hand_pcs'], dataa['hand_cols']
     else:

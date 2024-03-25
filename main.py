@@ -95,5 +95,5 @@ if __name__ == "__main__":
 
     multiprocessing.Process(target=moveit,
                                 kwargs={'real_life': args.real, 
-                                'objname':objname, 'partname':partname, 'target_holder':target_holder}
+                                        'objname': objname, 'partname': partname, 'target_holder': target_holder}
                             ).start()

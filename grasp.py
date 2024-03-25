@@ -54,9 +54,10 @@ def get_best_grasp(pred_grasps_cam, scores, hand_pcs):
             ]
 
     # Get highest score in pred_grasps_cam
-    best_grasp = store[max(store.keys())]
+    best_score = max(store.keys())
+    best_grasp = store[best_score]
 
-    print("Full best grasp (cam space)", ''.join(['\n   ' + s for s in str(best_grasp).split('\n')]))
+    print("Full best grasp (cam space)", 'score:', best_score, ''.join(['\n   ' + s for s in str(best_grasp).split('\n')]))
 
     # Extract translation and rotation
     from scipy.spatial.transform import Rotation as R
