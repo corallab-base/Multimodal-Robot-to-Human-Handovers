@@ -5,77 +5,87 @@ import time
 import torch
 import spacy
 from spacy import displacy
-from spacy.symbols import pobj, dobj, ADP, NOUN, PROPN
+from spacy.symbols import pobj, dobj, ADP, NOUN, PROPN, nsubj
 
 from gaze_utils.record_audio import Recorder
 
 # Load the English language model for spaCy
 nlp = spacy.load("en_core_web_sm")
 
+def group_compound_nouns(doc):
+    compounds = []
+    for token in doc:
+        # If the token is a noun or proper noun (you might adjust this according to your needs)
+        if token.pos_ in ['NOUN', 'PROPN']:
+            # Initialize compound noun with the current token's text
+            compound_noun = token.text
+            head = token.head  # The token's syntactic parent to check for compounds
+            
+            # Iterate through the token's children to check for 'compound' relations
+            for child in token.children:
+                # print('child and dep', child, child.dep_)
+                if child.dep_ == 'compound' or child.dep_ == 'amod':
+                    compound_noun = child.text + ' ' + compound_noun  # Prepend the compound part
+                    
+            # Check if the head of the current noun is also a noun; if so, it's likely part of a compound noun
+            if head.pos_ in ['NOUN', 'PROPN'] and token.dep_ == 'compound':
+                continue  # Skip adding to the list, as it will be captured by the head noun processing
+            
+            compounds.append(compound_noun)
+    return compounds
+
 def parse_sentence(sentence):
+    import json
+    import requests 
+
+    API_TOKEN = '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' # Don't worry - burner account
+    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    API_URL = "https://api-inference.huggingface.co/models/deepset/roberta-base-squad2"
+
+    data = {
+        'inputs': {
+            'question': 'What object?',
+            'context': sentence
+        }
+    }
+
+    response = requests.post(API_URL, headers=headers, json=data)
+
+    if response.status_code == 200:
+        answer = response.json()
+        object_name = answer['answer'].strip()
+    else:
+        print("Failed to retrieve:", response.text)
+        raise Exception()
+
+    # Preprocessing to remove POS terms that disconect the dependency parsing of Spacy
+    sentence = sentence.replace('on to', '')
+    sentence = sentence.replace('onto', '')
+    sentence = sentence.replace('would like to', '')
+    sentence = sentence.replace('like to', '')
+
     doc = nlp(sentence)
 
     # svg = displacy.render(doc, style='dep')
 
     # output_path = Path(f"./gaze_utils/{sentence.replace(' ', '_')}.svg") 
     # output_path.open("w", encoding="utf-8").write(svg)
-    
-    '''
-    Deduce the obj and part
-    '''
 
-    nouns = []
-    preps = []
-    for i, token in enumerate(doc):
-        if token.pos in (NOUN, PROPN):
-            nouns.append((i, token))
-        elif token.pos == ADP:
-            preps.append((i, token))    
+    nouns = group_compound_nouns(doc)
 
-    assert len(nouns) > 0, "Need at least one noun"
+    # print('object', object_name)
+    # print('nouns', nouns)
 
-    nouns_first = nouns[0][0]
-    nouns_last = nouns[-1][0]
+    for noun in nouns:
+        if noun.find(object_name) != -1:
+            nouns.remove(noun)
 
-    # find FIRST preposition between nouns
-    for i, prep in preps:
-        if nouns_first < i and i < nouns_last:
-            preceding_noun = [noun for j, noun in nouns if j < i][-1]
-            succeeding_noun = [noun for j, noun in nouns if i < j][0]
-            the_actual_prep = prep
-
-            # print('Got structure', preceding_noun, the_actual_prep, succeeding_noun)
-
-            if the_actual_prep.text == 'of':
-                object = succeeding_noun
-                part = preceding_noun.text
-            else:
-                object = preceding_noun
-                part = succeeding_noun.text
-
-            break
+    if len(nouns) == 1:
+        part = nouns[0].strip()
+    elif len(nouns) == 0:
+        part = None
     else:
-        if len(nouns) == 1:
-            object = nouns[0][1]
-            part = None
-        elif len(nouns) > 1:
-            # Assume part comes after
-            object = nouns[0][1]
-            part = nouns[1][1]
-        else:
-            raise Exception("Invalid sentence with no target object")
-    
-    # print('object is', object)
-
-    # Get adjectives of the object
-    object_name = ''
-    for child in object.children:
-        if str(child.dep_) in ('amod', 'compound'):
-            object_name += child.text + ' '
-    object_name += object.text
-
-    if str(object.dep_) in ('amod', 'compound'):
-        object_name += ' ' + object.head.text
+        raise Exception('Too many nouns in sentence (!=1)', sentence)
 
     '''
     If there is a part, who should hold it? 
@@ -96,9 +106,19 @@ def parse_sentence(sentence):
             if token.lemma_.lower() in ['hold', 'grab', 'grasp']:
                 dobjs = [child for child in token.children 
                         if child.dep == dobj and child.text.lower() not in ('it', 'me', 'i')]
-                holding_parts += dobjs
+                
+                # We have hold, grab, and grasp which are words that sound like commands to the robot!
+                # So it's a holding_part right! Unless it's "I grasp" or "I hold"
 
-        # print('holding', holding_parts, 'giving', giving_parts)
+                prefix_I = any(child.dep == nsubj and child.text.lower() in ('me', 'i') for child in token.children)
+                
+                if prefix_I:
+                    giving_parts += dobjs
+                else:
+                    holding_parts += dobjs
+
+        giving_parts = list(map(str, giving_parts))
+        holding_parts = list(map(str, holding_parts))
 
         if part in holding_parts:
             target_holder = 'robot'
@@ -114,7 +134,7 @@ def parse_sentence(sentence):
                 # For tie, default to robot
                 target_holder = 'robot' 
 
-    return object_name.strip(' '), part, target_holder
+    return object_name, part, target_holder
 
 
 def parse_audio0(file="gaze_utils/2 Mustard.wav"):
@@ -234,3 +254,5 @@ def record_and_parse(text=None, recording_done_func=None):
 
 if __name__ == "__main__":
     record_and_parse()
+    # res = parse_sentence("Grasp the drill and hand it over but I would like to grasp the handle")
+    # print(res)

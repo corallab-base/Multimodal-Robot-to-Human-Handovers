@@ -1,4 +1,5 @@
 import multiprocessing
+import os
 import time
 
 import numpy as np
@@ -77,7 +78,10 @@ def best_grasp(pc_full, pred_grasps_cam, scores, contact_pts, pc_colors, hand_pc
     # multiprocessing.Process(target=visualize_grasps,
     #         args=(pc_full, pred_grasps_cam.item(), scores.item(), hand_pcs, hand_cols), 
     #        kwargs={'plot_opencv_cam': False, 'pc_colors': pc_colors}).start()
-
+    
+    try: os.remove('grasp_vis_data.pickle')
+    except FileNotFoundError: pass
+    
     import pickle
 
     with open('grasp_vis_data.pickle', 'wb') as f:
