@@ -1,7 +1,6 @@
 import inspect
 import subprocess
 import time
-from matplotlib import pyplot as plt
 import torch
 import numpy as np
 import math
@@ -13,10 +12,24 @@ from gaze_utils import realsense as rs
 from gaze_utils.pc_utils import view_pc, depth2pc
 from gaze_utils.sshlib import get_glip, get_grasp
 
+from goto import goto
 import rtde_control
 import rtde_receive
 import robotiq_gripper
 # from .rmp_utils import execute_RMP_path, setup
+
+from matplotlib import pyplot as plt
+import signal
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+
+def camera_tweaks(roll, pitch, yaw):
+   '''
+   Given the orientation (in an ideal world with a mount that isn't made of plastic) of the camera,
+   convert it to what it actually is (extrinsic euler)
+   '''
+   return [roll + math.radians(-5),  # Up
+          pitch, # Clockwise spin
+          yaw + math.radians(-12)] # To the left a bit
 
 
 def rv2rpy(rx,ry,rz):
@@ -91,12 +104,8 @@ def transform(depth, rgb, pose, K = np.array([[910.571960449219, 0, 649.20629882
 
   # Convert from rotation vector to RPY
   roll, pitch, yaw = rv2rpy(*pose[3:6])
+  roll, pitch, yaw = camera_tweaks(roll, pitch, yaw)
   rot = R.from_euler('xyz', [roll, pitch, yaw], degrees=False)
-
-  # Camera tilts back a little, so add 1 deg of intrinsic pitch
-  roll_instrin, pitch_instrin, yaw_instrin = rot.as_euler('YXZ', degrees=False)
-  pitch_instrin += math.radians(1)
-  rot = R.from_euler('YXZ', [roll_instrin, pitch_instrin, yaw_instrin], degrees=False)
 
   # Apply rotation to pc
   transformed_pc = rot.apply(pc)
@@ -121,12 +130,8 @@ def transform_point(pc, pose):
 
   # Convert from rotation vector to RPY
   roll, pitch, yaw = rv2rpy(*pose[3:6])
+  roll, pitch, yaw = camera_tweaks(roll, pitch, yaw)
   rot = R.from_euler('xyz', [roll, pitch, yaw], degrees=False)
-
-  # Camera tilts back a little, so add 1 deg of intrinsic pitch
-  roll_instrin, pitch_instrin, yaw_instrin = rot.as_euler('YXZ', degrees=False)
-  pitch_instrin += math.radians(1)
-  rot = R.from_euler('YXZ', [roll_instrin, pitch_instrin, yaw_instrin], degrees=False)
 
   # Apply rotation to pc
   transformed_pc = rot.apply(pc)
@@ -151,14 +156,8 @@ def transform_rot(rot_intrin, pose):
 
   # Convert from rotation vector to RPY
   roll, pitch, yaw = rv2rpy(*pose[3:6])
+  roll, pitch, yaw = camera_tweaks(roll, pitch, yaw)
   rot = R.from_euler('xyz', [roll, pitch, yaw], degrees=False)
-
-  # Camera tilts back a little, so add 1 deg of intrinsic pitch
-  # Also roll 180deg instrinsically
-  roll_instrin, pitch_instrin, yaw_instrin = rot.as_euler('YXZ', degrees=False)
-  # roll_instrin += math.radians(-90)
-  # yaw_instrin += math.radians(180)
-  rot = R.from_euler('YXZ', [roll_instrin, pitch_instrin, yaw_instrin], degrees=False)
 
   # Apply rotation to pc
   transformed_rot = rot * rot_intrin
@@ -170,10 +169,11 @@ def transform_rot(rot_intrin, pose):
 rtde_c, rtde_r, gripper, wrist_cam = None, None, None, None
 
 # In camera coordinates: [(-)left-to-right(+), (-)up-to-down(+), (-)back-to-front(+), rotvec ]
-cam_tool_offset = [-0.01, -0.075, 0.05, 0, 0, 0]
+cam_tool_offset = [0.01, -0.075, 0.05, 0, 0, 0]
 right = [60.1, -167.45, -62.0, 49.6, 149.6, 0.1]
 left = [125.9, -158.6, -91.7, 69.97, 8.71, 0.35]
-front = [164.88, -46.17, -124.62, -53.24, 101.27, -10.25]
+# front = [164.88, -46.17, -124.62, -53.24 - 10, 101.27, -10.25]
+front = [173.53, -40.66, -144.32, -34.69, 95.20, -3.87]
 
 def deg_to_rad(l):
     return list(map(math.radians, l))
@@ -273,6 +273,9 @@ def init(real_life):
 
     global rtde_c, rtde_r, gripper, wrist_cam
 
+    try: os.remove('capture_pointcloud/front_rgb')
+    except FileNotFoundError: pass
+
     ip_address='192.168.1.123'
 
     if real_life:
@@ -323,7 +326,8 @@ def moveit(real_life, objname, partname, target_holder, ):
     except FileNotFoundError: pass
     try: os.remove('robot_grasp_viz.png')
     except FileNotFoundError: pass
-          
+    
+    wait_for_file('capture_pointcloud/front_data')
     front_cam_pose, front_rgb, front_depth = torch.load('capture_pointcloud/front_data')
 
     whitelist_obj, whitelist_part = grabbable_region(front_rgb, front_depth, partname, objname, 
@@ -413,12 +417,13 @@ def moveit(real_life, objname, partname, target_holder, ):
     if real_life:      
         # Go to staging
         stage = list(best_grasp - 2 * tool_vec) + list(best_grasp_rot.as_rotvec())
-        final = list(best_grasp + 0.2 * tool_vec) + list(best_grasp_rot.as_rotvec())
+        final = list(best_grasp + -0.5 * tool_vec) + list(best_grasp_rot.as_rotvec())
 
         with open('arm_target.txt', 'w') as file:
           file.write(str(stage) + '\n' + str(final))
           print('arm_target.txt saved')
 
+        # goto(rtde_c, rtde_r, gripper, grasp=True, handover=True)
 
         # print('Execute Path')
         # result = subprocess.run('/home/corallab/anaconda3/envs/handover/bin/python goto.py', shell=True, capture_output=True, text=True)
@@ -441,3 +446,7 @@ def moveit(real_life, objname, partname, target_holder, ):
     # Reset for next capture
     # rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
 
+if __name__ == '__main__':
+  from mover import moveit, init as initArm
+  initArm(True)
+  moveit(real_life=True, objname='red cup', partname=None, target_holder='human')

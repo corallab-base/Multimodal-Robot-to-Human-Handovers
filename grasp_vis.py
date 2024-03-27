@@ -131,8 +131,10 @@ def visualize_grasps(full_pc, pred_grasps_cam, scores, hand_pcs=None, hand_cols=
         print('No grasps found', store)
 
     # Get all grasps with score above 80th percentile
-    med = np.percentile(list(store.keys()), 0)
-    store2 = {s: v for s,v in store.items() if s > med}
+    med = np.percentile(list(store.keys()), 40)
+    # print('median percentile', med, store.items())
+    store2 = {s: v for s,v in store.items() if s > 0}
+    print('Drawing all grasps')
         
     # for i,k in enumerate(pred_grasps_cam):
     #     print(i, '/', len(pred_grasps_cam))
@@ -154,7 +156,7 @@ def visualize_grasps(full_pc, pred_grasps_cam, scores, hand_pcs=None, hand_cols=
     
     # mlab.show()
     # mlab.view() # azimuth=180, elevation=180, distance=1)
-    mlab.view(azimuth=180, elevation=180, distance=0.5, focalpoint=(0, 0, 0))
+    mlab.view(azimuth=180, elevation=180, distance=0.5, focalpoint=(0, 0, 0), reset_roll=True)
     mlab.savefig(filename='robot_grasp_viz.png', size=(3000, 3000))
     print('Save robot_grasp_viz.png')
 
@@ -187,7 +189,7 @@ def draw_pc_with_colors(pc, pc_colors=None, points_size=0.0018, single_color=(0.
                                 xl[2].reshape(1, 256**3),
                                 255 * np.ones((1, 256**3)))).T
             return lut.astype('int32')
-        
+                
         scalars = pc_colors[:,0]*256**2 + pc_colors[:,1]*256 + pc_colors[:,2]
         rgb_lut = create_8bit_rgb_lut()
         points_mlab = mlab.points3d(pc[:, 0], pc[:, 1], pc[:, 2], scalars, mode=mode, scale_factor=points_size)

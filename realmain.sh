@@ -1,1 +1,1 @@
-python main.py --real true --gaze False --prompt "Give me the banana" && python goto.py
+python main.py "$@" && python goto.py && python grasp.py && code robot_grasp_viz.png

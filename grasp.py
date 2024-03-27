@@ -59,7 +59,7 @@ def get_best_grasp(pred_grasps_cam, scores, hand_pcs):
 
     print("Full best grasp (cam space)", 'score:', best_score, ''.join(['\n   ' + s for s in str(best_grasp).split('\n')]))
 
-    # Extract translation and rotation
+    # Extract translation and rotations
     from scipy.spatial.transform import Rotation as R
     rot = R.from_matrix(best_grasp[0:3, 0:3])
     trans = np.array([best_grasp[0:3, 3]])
@@ -69,15 +69,33 @@ def get_best_grasp(pred_grasps_cam, scores, hand_pcs):
 
 def best_grasp(pc_full, pred_grasps_cam, scores, contact_pts, pc_colors, hand_pcs, hand_cols, avoid_hands):
 
-    from grasp_vis import visualize_grasps
-    from threading import Thread
+    # from grasp_vis import visualize_grasps
+    # from threading import Thread
 
-    # Run visualization in a another thread since it takes a while
-    print('Visualizing Grasps...takes time')
-    multiprocessing.Process(target=visualize_grasps,
-            args=(pc_full, pred_grasps_cam.item(), scores.item(), hand_pcs, hand_cols), 
-           kwargs={'plot_opencv_cam': False, 'pc_colors': pc_colors}).start()
+    # # Run visualization in a another thread since it takes a while
+    # print('Visualizing Grasps...takes time')
+    # multiprocessing.Process(target=visualize_grasps,
+    #         args=(pc_full, pred_grasps_cam.item(), scores.item(), hand_pcs, hand_cols), 
+    #        kwargs={'plot_opencv_cam': False, 'pc_colors': pc_colors}).start()
+
+    import pickle
+
+    with open('grasp_vis_data.pickle', 'wb') as f:
+        pickle.dump(f, (pc_full, pred_grasps_cam.item(), scores.item(), hand_pcs, hand_cols, pc_colors))
     
     return get_best_grasp(pred_grasps_cam, scores, hand_pcs if avoid_hands else None)
 
+if __name__ == '__main__':
+    from grasp_vis import visualize_grasps
+    from threading import Thread
+    import pickle
+
+    # Run visualization in a another thread since it takes a while
     
+    with open('grasp_vis_data.pickle', 'rb') as f:
+        pc_full, pred_grasps_cam, scores, hand_pcs, hand_cols, pc_colors = pickle.load(f)
+
+    print(pc_colors)
+
+    visualize_grasps(pc_full, pred_grasps_cam, scores, hand_pcs, hand_cols, 
+           plot_opencv_cam=False, pc_colors=pc_colors)

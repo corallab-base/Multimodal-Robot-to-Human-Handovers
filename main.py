@@ -61,7 +61,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--real", default=True, type=str2bool,
                         help="Whether the program is executing for real, otherwise use saved data from last run.")
-    parser.add_argument("--gaze", default=False, type=str2bool,
+    parser.add_argument("--gaze", default=True, type=str2bool,
                         help="Whether to run gaze tracking, otherwise use saved data from last run.")
     parser.add_argument("--prompt", default=None, type=str, 
                         help="If given, use in place of audio recording.")

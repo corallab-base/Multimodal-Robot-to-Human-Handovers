@@ -99,7 +99,7 @@ def send(src, dest):
         if not result.returncode == 0:
             print('send error ', command, '\n    ', result.stderr)
         return result.returncode == 0
-    except TimeoutError:
+    except subprocess.TimeoutExpired:
         return False
     
 def get(src, dest):
@@ -107,7 +107,7 @@ def get(src, dest):
         command = 'scp -i secrets/id_ed25519 corallab-s1@10.164.8.169:' + src + ' ' + dest
         result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=2)
         return result.returncode == 0
-    except TimeoutError:
+    except subprocess.TimeoutExpired:
         return False
 
 def get_glip(prompt, image):

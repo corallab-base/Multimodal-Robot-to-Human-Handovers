@@ -1,71 +1,63 @@
-import socket
-import sys
+# Imports
 import cv2
+import gzip
 import numpy as np
-from PIL import Image
+import socket
+
+
+# Connection constants
+HOST = "192.168.1.149"
+PORT = 3008
+
 
 print('Connecting to remote camera...')
 client_socket = socket.socket()
-client_socket.connect(("192.168.1.149", 3003))
+client_socket.connect((HOST, PORT))
+chunk, data = None, None
 
-# with open('file.npy', 'wb') as f:
-#     l = s.recv(1024)
-#     while len(l) > 0:
-#         f.write(l)
-#         l = s.recv(1024)
-
-# recv_file = np.load('file.npy', allow_pickle=True)
-# Image.fromarray(recv_file[:, :, :3].astype(np.uint8)).show()
-# s.close()
-
-COLOR_IMAGE_BYTES = 1280 * 720 * 3
-
-chunk, image_data = None, None
-
+# Gets the image from the remote camera
 def get_image():
-    global chunk, image_data
-
-    print('Fetching remote color image...')
     # Getting data from the server
-    image_data = b''
-    chunk = client_socket.recv(1024)
-    while len(chunk) > 0:
-        image_data += chunk
-        chunk = client_socket.recv(1024)
+    data = client_socket.recv(4)
+    data_len = int.from_bytes(data, byteorder="big")
+    data = b''
+    while len(data) < data_len - 2048:
+        data += client_socket.recv(2048)
+    data += client_socket.recv(data_len - len(data))
 
-        if len(image_data) >= COLOR_IMAGE_BYTES:
-            break
+    # Decompressing the image data
+    data = gzip.decompress(data)
 
-    # Decode the received image data into a numpy array
-    if len(image_data) == 0:
-        raise Exception('Got nothing from camera')
-    image = np.frombuffer(image_data[:COLOR_IMAGE_BYTES], dtype=np.uint8).reshape((720, 1280, 3))
+    # Reshape the received image data into a numpy array
+    image = np.frombuffer(data, dtype=np.uint8).reshape((720, 1280, 3))
     return image
 
+
+# Gets the depth from the remote camera
 def get_depth():
-    '''
-    call after get_color
-    '''
-    global chunk, image_data
+    # Getting data from the server
+    data = b''
+    while True:
+        chunk = client_socket.recv(2048)
+        if not chunk:
+            break
+        data += chunk
 
-    print('Fetching remote depth image...')
-
-    while len(chunk) > 0:
-        image_data += chunk
-        chunk = client_socket.recv(1024)
-
-    # Decode the received image data into a numpy array
-    if len(image_data) == 0:
-        raise Exception('Got nothing from camera')
-    image = np.frombuffer(image_data[COLOR_IMAGE_BYTES:], dtype=np.float32).reshape((720, 1280))
-    return image
+    # Decompressing the image data
+    data = gzip.decompress(data)
+    
+    # Reshaping the received depth data into a numpy array
+    depth = np.frombuffer(data, dtype=np.float32).reshape((720, 1280))
+    return depth
 
 
 if __name__ == '__main__':
+    print('Fetching remote color image...')
     a = get_image()
     cv2.imshow('color', a)
     cv2.waitKey(1000)
 
+    print('Fetching remote depth image...')
     b = get_depth()
     normalized_depth = np.clip(b, 0, 65535) # Assuming 16-bit image, change as necessary
     normalized_depth = (normalized_depth / 65535) * 255

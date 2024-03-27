@@ -8,9 +8,10 @@
 
 ## Running
 ```python
-python main.py --real True --gaze False --prompt "Give me the red cup"
+./realmain.sh
 ```
 
+Add route to the remote camera (Get this issue when there are multiple network devices connected)
 ```
 sudo ip route add 192.168.1.149 dev wlp0s20f3
 ```
@@ -29,4 +30,9 @@ Toggle the UR5 Wired Preset off and on
 RuntimeError: One of the RTDE input registers are already in use! Currently you must disable the EtherNet/IP adapter, PROFINET or any MODBUS unit configured on the robot. This might change in the future.
 ```
 I don't know
+```
+
+RuntimeError: ur_rtde: Failed to start control script, before timeout of 5 seconds
+```
+Wait 3 seconds, then try again. Make sure there are no errors on the tablet
 ```

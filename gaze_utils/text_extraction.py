@@ -1,3 +1,4 @@
+import multiprocessing
 from pathlib import Path
 import time
 
@@ -116,10 +117,10 @@ def parse_sentence(sentence):
     return object_name.strip(' '), part, target_holder
 
 
-def parse_audio(file="gaze_utils/2 Mustard.wav"):
+def parse_audio0(file="gaze_utils/2 Mustard.wav"):
     command = \
     'import whisper;' + \
-    'model = whisper.load_model("base");' + \
+    'model = whisper.load_model("base", device="cpu");' + \
     f'result = model.transcribe(\"{file}\");' + \
     'print(result["text"])'
 
@@ -138,7 +139,29 @@ def parse_audio(file="gaze_utils/2 Mustard.wav"):
 
     return res
 
-    
+def parse_audio(filename):
+    import json
+    import requests 
+
+    API_TOKEN = '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' # Don't worry - burner account
+    headers = {"Authorization": f"Bearer {API_TOKEN}"}
+    API_URL = "https://api-inference.huggingface.co/models/openai/whisper-large-v3"
+
+    def query(filename):
+        with open(filename, "rb") as f:
+            data = f.read()
+        response = requests.request("POST", API_URL, headers=headers, data=data)
+        return json.loads(response.content.decode("utf-8"))
+
+    data = query(filename)
+
+    print('HF returns:', data)
+
+    return data['text']
+
+# print('Making a dummy HF request to warm up to API...')
+# multiprocessing.Process(target=parse_audio, args=('demo_audio.mp3',))
+
 sentences = [
     "Grasp the yellow banana from tip and hand it to me",
     "Grasp the red apple and hand it over",
@@ -187,10 +210,10 @@ def record_and_parse(text=None, recording_done_func=None):
         time.sleep(0.3)
 
         torch.cuda.empty_cache()
-        text = parse_audio('gaze_utils/audio.wav')
+        text = parse_audio0('gaze_utils/audio.wav')
     else:
-        print('Simulating prompt for 4 seconds')
-        time.sleep(4)
+        print('Simulating prompt for 2 seconds')
+        time.sleep(2)
         recording_done_func()
         
     print('Input Sentence:', text)
