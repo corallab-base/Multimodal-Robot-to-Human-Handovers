@@ -27,9 +27,19 @@ def camera_tweaks(roll, pitch, yaw):
    Given the orientation (in an ideal world with a mount that isn't made of plastic) of the camera,
    convert it to what it actually is (extrinsic euler)
    '''
+
+   # In the following I determine the error in the camera mount experimentally
+   # Sorry, the roll/pitch/yaw names don't actually correspond
+   # The directional comments correspond to how the tweak affects the pointcloud,
+   # not the rotation itself 
+
    return [roll + math.radians(-5),  # Up
           pitch, # Clockwise spin
-          yaw + math.radians(-12)] # To the left a bit
+          yaw + math.radians(-8)] # To the right (-27) a bit (Negative is right)
+
+  #  return [roll + math.radians(-5),  # Up
+  #         pitch, # Clockwise spin
+  #         yaw + math.radians(-12)] # To the left a bit
 
 
 def rv2rpy(rx,ry,rz):
@@ -69,7 +79,7 @@ def rv2rpy(rx,ry,rz):
   
   return gamma, beta, alpha  
 
-def transform(depth, rgb, pose, K = np.array([[910.571960449219, 0, 649.206298828125], [0, 911.160827636719, 358.177185058594], [0, 0, 1]])):
+def transform(depth, rgb, pose, K):
   '''
   Convert the given depth (in meters) and rgb [0, 256) to a pointcloud, then transform by the given UR5
   pose [x, y, z, rotvec_, rotvec_Y, rotvec_X], as defined in base coordinates. Such a pose is returned
@@ -81,7 +91,6 @@ def transform(depth, rgb, pose, K = np.array([[910.571960449219, 0, 649.20629882
   Note: Anything farther than 1 meter in the depth image will be filtered out
   '''
 
-  from gaze_heatmap_to_mask import depth2pc
   from scipy.spatial.transform import Rotation as R
 
   depth[depth > 1] = 0
@@ -100,10 +109,9 @@ def transform(depth, rgb, pose, K = np.array([[910.571960449219, 0, 649.20629882
   
   pc, rgb = depth2pc(depth, K, rgb=rgb)
 
-  rgb[:, :] = rgb[:, [2, 1, 0]]
-
   # Convert from rotation vector to RPY
-  roll, pitch, yaw = rv2rpy(*pose[3:6])
+  rot = R.from_rotvec(pose[3:6])
+  roll, pitch, yaw = rot.as_euler('xyz')
   roll, pitch, yaw = camera_tweaks(roll, pitch, yaw)
   rot = R.from_euler('xyz', [roll, pitch, yaw], degrees=False)
 
@@ -168,12 +176,9 @@ def transform_rot(rot_intrin, pose):
 
 rtde_c, rtde_r, gripper, wrist_cam = None, None, None, None
 
-# In camera coordinates: [(-)left-to-right(+), (-)up-to-down(+), (-)back-to-front(+), rotvec ]
-cam_tool_offset = [0.01, -0.075, 0.05, 0, 0, 0]
-right = [60.1, -167.45, -62.0, 49.6, 149.6, 0.1]
-left = [125.9, -158.6, -91.7, 69.97, 8.71, 0.35]
-# front = [164.88, -46.17, -124.62, -53.24 - 10, 101.27, -10.25]
-front = [173.53, -40.66, -144.32, -34.69, 95.20, -3.87]
+from gaze_utils.constants import cam_tool_offset, front
+# right = [60.1, -167.45, -62.0, 49.6, 149.6, 0.1]
+# left = [125.9, -158.6, -91.7, 69.97, 8.71, 0.35]
 
 def deg_to_rad(l):
     return list(map(math.radians, l))
@@ -273,9 +278,6 @@ def init(real_life):
 
     global rtde_c, rtde_r, gripper, wrist_cam
 
-    try: os.remove('capture_pointcloud/front_rgb')
-    except FileNotFoundError: pass
-
     ip_address='192.168.1.123'
 
     if real_life:
@@ -329,6 +331,8 @@ def moveit(real_life, objname, partname, target_holder, ):
     
     wait_for_file('capture_pointcloud/front_data')
     front_cam_pose, front_rgb, front_depth = torch.load('capture_pointcloud/front_data')
+
+    assert front_cam_pose.shape[0:2] == front_depth.shape[0:2]
 
     whitelist_obj, whitelist_part = grabbable_region(front_rgb, front_depth, partname, objname, 
                                                      largen_part = target_holder == 'robot')

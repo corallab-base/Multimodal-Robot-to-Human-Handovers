@@ -5,6 +5,8 @@ import subprocess
 import time
 import numpy as np
 import paramiko
+from constants import d415_intrinsics
+
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -29,40 +31,33 @@ def get_grasp(rgb, depth, mask, avoid_hands):
 
     unique = str(int(100 * time.time()))
 
-    np.savez('tmp/grasp' + unique + '.npz', depth=depth, rgb=rgb, segmap=mask, K=[911.445649104, 0, 641.169, 0, 891.51236121, 352.77, 0, 0, 1])
+    np.savez('tmp/grasp' + unique + '.npz', depth=depth, rgb=rgb, segmap=mask, K=d415_intrinsics)
     
-    # Save this for robot grasp gen
-    # sftp.put('tmp/grasp' + unique + '.npz', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs/INPUT' + unique + '.npz')
+    # for robot grasp gen
     send('tmp/grasp' + unique + '.npz', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs/INPUT' + unique + '.npz')
     if avoid_hands:
-        # Save this for human grasp gen
-        # sftp.put('tmp/grasp' + unique + '.npz', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs_hand/INPUT' + unique + '.npz')
+        # for human grasp gen
         send('tmp/grasp' + unique + '.npz', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs_hand/INPUT' + unique + '.npz')
     
-    try:
-        # sftp.put('tmp/DONE', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs/DONE')
-        send('tmp/DONE', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs/DONE')
-    except FileNotFoundError:
-        # It gets deleted too fast for sftp to check!
-        pass
+    # Send DONE
+    send('tmp/DONE', 
+         '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs/DONE')
     
     if avoid_hands:
-        try:
-            # sftp.put('tmp/DONE', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs_hand/DONE')
-            send('tmp/DONE', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs_hand/DONE')
-        except FileNotFoundError:
-            # It gets deleted too fast for sftp to check!
-            pass
-        
+        send('tmp/DONE', 
+             '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/inputs_hand/DONE')
+
     # Wait for robot grasp to come through
     for _ in range(100):
-        # sftp.get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/results/predictions_INPUT' +  unique + '.npz', 'tmp/grasp_res' + unique + '.npz')
-        succ = get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/results/predictions_INPUT' + unique + '.npz', 'tmp/grasp_res.npz')
+        succ = get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/results/predictions_INPUT' + unique + '.npz', 
+                   'tmp/grasp_res.npz')
+        
         if succ: break
         print('    wait for ROBOT GRASP')
         time.sleep(0.2)
     else:
         raise Exception('Did not get ROBOT GRASP result in 20s')
+    
     print("    Got robot grasp position")
     
     data = np.load('tmp/grasp_res.npz', allow_pickle=True)
@@ -72,11 +67,11 @@ def get_grasp(rgb, depth, mask, avoid_hands):
     if avoid_hands:
         # Wait for human grasp to come through
         for _ in range(100):
-            # sftp.get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/results/hand_predictions_INPUT' +  unique + '.npz', 'tmp/grasp_hand_res' + unique + '.npz')
-            succ = get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/results/hand_predictions_INPUT' +  unique + '.npz', 'tmp/grasp_hand_res.npz')
+            succ = get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/CoGrasp/results/hand_predictions_INPUT' + unique + '.npz', 
+                       'tmp/grasp_hand_res.npz')
+            
             if succ: break
             print('    wait for HAND POSITION')
-            
             time.sleep(0.2)
         else:
             raise Exception('Did not get the HUMAN HAND result in 20s')
@@ -119,40 +114,15 @@ def get_glip(prompt, image):
 
     imgname = 'glipimage' + str(int(100 * time.time())) + '-' + str(prompt.replace(' ', '_'))
     Image.fromarray(image).save('tmp/' + imgname + '.png')
-    # print('pre put', imgname)
-    # sftp.put('tmp/' + imgname + '.png', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/ins/' + imgname + '.png',
-    #          confirm=False)
-    send('tmp/' + imgname + '.png', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/ins/' + imgname + '.png')
-    send('tmp/DONE', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/ins/DONE')
-
-    # print('post put')
-    # try:
-    #     sftp.put('tmp/DONE', '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/ins/DONE')
-    # except FileNotFoundError:
-    #     # It gets deleted too fast for sftp to check!
-    #     pass
-
-    
-
-    # # Wait for file to appear
-    # for _ in range(10):
-    #     try:
-    #         sftp.stat(REMOTE_PATH)
-            
-    #         break
-    #     except IOError:
-    #         pass
-    #     time.sleep(0.2)
-    # else:
-    #     raise Exception('Did not get the file in 2s')
-
-    # # Get the file after short delay
-    # sftp.get(REMOTE_PATH, 'tmp/dest.npz')
-    
-    REMOTE_PATH= f'/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/outs/' + imgname + '.npz'
+   
+    send('tmp/' + imgname + '.png', 
+         '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/ins/' + imgname + '.png')
+    send('tmp/DONE', 
+         '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/ins/DONE')
 
     for _ in range(20):
-        succ = get(REMOTE_PATH,' tmp/dest.npz')
+        succ = get('/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/outs/' + imgname + '.npz',
+                   ' tmp/dest.npz')
 
         if succ: break
 

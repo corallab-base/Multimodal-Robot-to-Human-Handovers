@@ -13,10 +13,7 @@ def deg_to_rad(l):
     return list(map(math.radians, l))
 
 def goto(rtde_c, rtde_r):
-
-    front = [164.88, -46.17, -124.62, -53.24, 101.27, -10.25]
-    mid = [273.93, -46.98, -131.55, -41.77, 61.43, 13.24]
-    handoff = [294.44, -95.15, -154.43, 43.15, 53.49, 13.25]
+    from gaze_utils.constants import front, mid, handoff
 
     # Move back out to front
     rtde_c.moveJ(deg_to_rad(handoff), 1.5, 0.9, asynchronous=False)

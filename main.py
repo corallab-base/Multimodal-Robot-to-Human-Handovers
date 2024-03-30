@@ -76,6 +76,9 @@ if __name__ == "__main__":
         with stop_gaze_tracking.get_lock(): 
             stop_gaze_tracking.value = True
 
+    try: os.remove('capture_pointcloud/front_rgb')
+    except FileNotFoundError: pass
+    
     multiprocessing.Process(target=initArm,
                             args=(args.real,)
                             ).start()

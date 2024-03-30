@@ -69,6 +69,9 @@ class RSCapture:
             if not preset_found:
                 print("   Desired preset", preset, 'not found from', preset_range)
 
+        depth_sensor.set_option(rs.option.enable_auto_exposure, 1)
+        # depth_sensor.set_option(rs.option.exposure, 100)
+
         # depth_sensor.set_option(rs.option.confidence_threshold, 1) # 1 -3
         # depth_sensor.set_option(rs.option.noise_filtering, 6)
 

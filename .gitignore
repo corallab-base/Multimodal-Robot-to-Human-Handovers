@@ -16,3 +16,4 @@ secrets/
 arm_target.txt
 grasp_vis_data.pickle
 grasp_vis_data.npz
+gaze_utils/text_extraction.old.py

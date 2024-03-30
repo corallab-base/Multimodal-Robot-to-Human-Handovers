@@ -3,6 +3,7 @@ import os
 import time
 
 import numpy as np
+import torch
 
 def get_best_grasp(pred_grasps_cam, scores, hand_pcs):
     '''
@@ -81,11 +82,10 @@ def best_grasp(pc_full, pred_grasps_cam, scores, contact_pts, pc_colors, hand_pc
     
     try: os.remove('grasp_vis_data.pickle')
     except FileNotFoundError: pass
-    
+
     import pickle
 
-    with open('grasp_vis_data.pickle', 'wb') as f:
-        pickle.dump(f, (pc_full, pred_grasps_cam.item(), scores.item(), hand_pcs, hand_cols, pc_colors))
+    torch.save('grasp_vis_data.pickle', (pc_full, pred_grasps_cam.item(), scores.item(), hand_pcs, hand_cols, pc_colors))
     
     return get_best_grasp(pred_grasps_cam, scores, hand_pcs if avoid_hands else None)
 
@@ -96,8 +96,7 @@ if __name__ == '__main__':
 
     # Run visualization in a another thread since it takes a while
     
-    with open('grasp_vis_data.pickle', 'rb') as f:
-        pc_full, pred_grasps_cam, scores, hand_pcs, hand_cols, pc_colors = pickle.load(f)
+    pc_full, pred_grasps_cam, scores, hand_pcs, hand_cols, pc_colors = torch.load('grasp_vis_data.pickle')
 
     print(pc_colors)
 
