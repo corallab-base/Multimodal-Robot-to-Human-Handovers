@@ -1,6 +1,7 @@
 import inspect
 import subprocess
 import time
+import matplotlib
 import torch
 import numpy as np
 import math
@@ -9,7 +10,7 @@ from PIL import Image
 
 from gaze_utils import realsense as rs
 
-from gaze_utils.pc_utils import view_pc, depth2pc
+from gaze_utils.pc_utils import view_pc, depth2pc, view_pc_o3d
 from gaze_utils.sshlib import get_glip, get_grasp
 
 from goto import goto
@@ -33,9 +34,9 @@ def camera_tweaks(roll, pitch, yaw):
    # The directional comments correspond to how the tweak affects the pointcloud,
    # not the rotation itself 
 
-   return [roll + math.radians(-5),  # Up
+   return [roll + math.radians(-5.5),  # Positive is Up
           pitch, # Clockwise spin
-          yaw + math.radians(-8)] # To the right (-27) a bit (Negative is right)
+          yaw + math.radians(-2)] # To the right (-27) a bit (Negative is left)
 
   #  return [roll + math.radians(-5),  # Up
   #         pitch, # Clockwise spin
@@ -254,25 +255,7 @@ def grabbable_region(rgb, depth, partname, objname, largen_part):
 
     whitelist_part = whitelist_obj & whitelist_part
 
-    from matplotlib import pyplot as plt
-
-    f, axarr = plt.subplots(1, 2) 
-    f.set_size_inches(13, 5)
-    plt.title("Detected Object and Part")
-    button_ax = plt.axes([0.4, 0.05, 0.3, 0.1]) 
-    from matplotlib.widgets import Button
-    button = Button(button_ax, 'Continue', color='gainsboro', hovercolor='white')
-    button.on_clicked(lambda event: plt.close())
-
-    bgr = rgb[..., ::-1]
-
-    axarr[0].imshow(bgr * np.dstack((whitelist_obj, whitelist_obj, whitelist_obj)))
-    if partname is not None:
-        axarr[1].imshow(bgr * np.dstack((whitelist_part, whitelist_part, whitelist_part)))
-      
-    plt.show()
-
-    return whitelist_obj, whitelist_obj & whitelist_part 
+    return whitelist_obj, whitelist_part 
 
 def init(real_life):
 
@@ -313,6 +296,7 @@ def init(real_life):
         from remote_cam import get_image, get_depth
         front_rgb = np.rot90(get_image(), 2)
         torch.save(front_rgb, 'capture_pointcloud/front_rgb')
+        Image.fromarray(front_rgb[..., ::-1]).save('capture_pointcloud/front_rgb.png')
         front_depth = np.rot90(get_depth(), 2)
         torch.save((front_cam_pose, front_rgb, front_depth), 'capture_pointcloud/front_data')
 
@@ -332,7 +316,10 @@ def moveit(real_life, objname, partname, target_holder, ):
     wait_for_file('capture_pointcloud/front_data')
     front_cam_pose, front_rgb, front_depth = torch.load('capture_pointcloud/front_data')
 
-    assert front_cam_pose.shape[0:2] == front_depth.shape[0:2]
+    # clip depth
+    front_depth[front_depth > 1] = 0
+
+    assert front_rgb.shape[0:2] == front_depth.shape[0:2]
 
     whitelist_obj, whitelist_part = grabbable_region(front_rgb, front_depth, partname, objname, 
                                                      largen_part = target_holder == 'robot')
@@ -352,13 +339,39 @@ def moveit(real_life, objname, partname, target_holder, ):
         grab_mask = whitelist_obj.copy()
         grab_mask[~(whitelist_obj & ~whitelist_part)] = 0.0
 
+    # Python imshow 
+    f, axarr = plt.subplots(1, 2) 
+    f.set_size_inches(13, 5)
+    plt.title("Detected Object and Grabable Part")
+    button_ax = plt.axes([0.4, 0.05, 0.3, 0.1]) 
+    from matplotlib.widgets import Button
+    button = Button(button_ax, 'Continue', color='gainsboro', hovercolor='white')
+    button.on_clicked(lambda event: plt.close())
+
+    bgr = front_rgb[..., ::-1]
+    a = bgr.copy()
+    b = bgr.copy()
+    a[~whitelist_obj] = a[~whitelist_obj] / 2
+    b[~grab_mask] = b[~grab_mask] / 2
+    axarr[0].imshow(a)
+    if partname is not None:
+        axarr[1].imshow(b)
+      
+    plt.show()
+
     # plt.imshow(front_rgb * grab_mask[..., None])
     # plt.show()
+    from gaze_utils.constants import d415_intrinsics
+    pc, col = depth2pc(front_depth, d415_intrinsics, rgb=front_rgb)
+    tpc = transform_point(pc, front_cam_pose)
+    colhsv = matplotlib.colors.rgb_to_hsv(col[..., ::-1])
+    valid_ind = (tpc[..., 2] > 0.05) | (colhsv[..., 2] > 100)
 
-    # K = np.array([[910.571960449219, 0, 649.206298828125], [0, 911.160827636719, 358.177185058594]])
-    # pc, col = depth2pc(grab_mask, K, rgb=front_rgb)
-    # view_pc(pc, col=col/256, show=False, title='Grabbable region')
-    # plt.show(block=False)
+    tpc = tpc[valid_ind]
+    col = col[valid_ind]
+    colhsv = colhsv[valid_ind]
+    # view_pc_o3d(tpc, col=col[..., ::-1], show=False, title='Grabbable region')
+    # plt.show()
 
     '''
     Three cases:
@@ -389,8 +402,10 @@ def moveit(real_life, objname, partname, target_holder, ):
     #   pc_world, col_world = transform(depth_part, front_rgb, front_cam_pose)
     #   pcs_world_part += [pc_world]
     #   cols_world_part += [col_world]
-
+    from scipy.spatial.transform import Rotation
     best_grasp_rot = transform_rot(best_grasp_rot, front_cam_pose)
+    flip = Rotation.from_euler('Z', 180, degrees=True)
+    # best_grasp_rot = best_grasp_rot * flip
     tool_vec = best_grasp_rot.apply([0, 0, 0.06])
     # print('tool vector direction', tool_vec)
 
@@ -401,22 +416,6 @@ def moveit(real_life, objname, partname, target_holder, ):
        return ', '.join([f'{l:.3f}' for l in li])
     
     print('Best robot grasp pose', nicelist(best_grasp) + ', ' + nicelist(best_grasp_rot.as_rotvec()))
-    
-    def gotoss():
-      # from capture_pointcloud.rmp_utils import execute_RMP_path
-
-      # Setup for Sim
-      gym, sim, env, viewer, camera_handle, arm, dof_states = setup()
-      # I believe execute_RMP_path takes in rads, but double check.
-      path = execute_RMP_path(gym, sim, env, viewer, arm, [], dof_states, front)[2]
-
-      index = 0
-      while index < len(path):
-        joint_config = path[index]
-        rtde_c.moveJ(joint_config, 1.5, .9, asychronous=False)
-        index += 10
-      rtde_c.moveJ(path[-1], 1.5, .9, asychronous=False)
-
 
     if real_life:      
         # Go to staging
@@ -436,21 +435,7 @@ def moveit(real_life, objname, partname, target_holder, ):
     plt.show()
     
 
-    # Consolidate
-    # pcs_combined = np.concatenate(pcs_world_obj, axis=0) # [N, 3]
-    # cols_combined = np.concatenate(cols_world_obj, axis=0) # [N, 3] in range [0, 1)
-
-    # np.savez('capture_pointcloud/pc_obj.npz', pcs_combined=pcs_combined, cols_combined=cols_combined / 256)
-
-    # pcs_combined = np.concatenate(pcs_world_part, axis=0) # [N, 3]
-    # cols_combined = np.concatenate(cols_world_part, axis=0) # [N, 3] in range [0, 1)
-
-    # np.savez('capture_pointcloud/pc_part.npz', pcs_combined=pcs_combined, cols_combined=cols_combined / 256)
-
-    # Reset for next capture
-    # rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
-
 if __name__ == '__main__':
   from mover import moveit, init as initArm
-  initArm(True)
-  moveit(real_life=True, objname='red cup', partname=None, target_holder='human')
+  # initArm(True)
+  moveit(real_life=True, objname='bottle', partname=None, target_holder='human')

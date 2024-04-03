@@ -5,7 +5,7 @@ import subprocess
 import time
 import numpy as np
 import paramiko
-from constants import d415_intrinsics
+from gaze_utils.constants import d415_intrinsics
 
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -127,6 +127,8 @@ def get_glip(prompt, image):
         if succ: break
 
         time.sleep(0.2)
+    else:
+        raise Exception("GLIP timed out 10s")
 
     os.remove('tmp/' + imgname + '.png')
 

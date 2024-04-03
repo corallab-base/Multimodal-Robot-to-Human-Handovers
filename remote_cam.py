@@ -1,3 +1,13 @@
+
+'''
+For calibrating camera_tweaks() in mover.py and the K instrinsics in constants.py.
+
+Place a blue object below the midline and run this script. The arm will move to point to the object
+(or where it thinks it is). By repeating this for multiple positions (left, right, close, far) ofthe
+blue ball, you can get an idea for what is off in the parameters.
+'''
+
+
 # Imports
 import cv2
 import gzip

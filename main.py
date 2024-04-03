@@ -12,9 +12,6 @@ from gaze_utils.realsense import RSCapture
 
 from gaze_utils.sshlib import connect as connectSSH
 
-print('Importing Headpose Model...')
-from gaze_utils.headpose import infer, free_model
-
 from mover import moveit, init as initArm
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
@@ -87,6 +84,9 @@ if __name__ == "__main__":
     front_rgb = torch.load('capture_pointcloud/front_rgb')
 
     if args.gaze:
+        print('Importing Headpose Model...')
+        from gaze_utils.headpose import infer, free_model
+
         threading.Thread(target=gaze_track, 
                          args=(stop_gaze_tracking, front_rgb)
                          ).start()

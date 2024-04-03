@@ -33,9 +33,13 @@ gripper.move(gripper.get_open_position(), 64, 1)
 # Go to front position
 rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
 
-wrist_cam = RSCapture(serial_number='044122070299', use_meters=False, preset='Default')
+# wrist_cam = RSCapture(serial_number='044122070299', use_meters=False, preset='Default')
 
-rgb, depth, _, _ = wrist_cam.get_frames(rotate=True)
+# rgb, depth, _, _ = wrist_cam.get_frames(rotate=True)
+from remote_cam import get_image, get_depth
+rgb, depth = get_image(), get_depth()
+rgb, depth = np.rot90(rgb, 2), np.rot90(depth, 2)
+
 pose = rtde_c.getForwardKinematics(rtde_r.getActualQ(), tcp_offset=cam_tool_offset)
 print('pose', pose)
 from scipy.spatial.transform import Rotation as R
@@ -53,9 +57,13 @@ print('depth', depth.shape)
 
 hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
 
-blue = (hsv[..., 0] > 60) & (hsv[..., 0] < 95) & (hsv[..., 1] > 100) & (hsv[..., 2] > 120) & (hsv[..., 2] < 230)
+blue = (hsv[..., 0] > 80) & (hsv[..., 0] < 105) & (hsv[..., 1] > 100) & (hsv[..., 2] > 120) & (hsv[..., 2] < 256)
 blue = blue.astype(bool)
-blue[0:blue.shape[0]//2, :] = False
+# blue[0:blue.shape[0]//2, :] = False
+
+# remove noise
+blue = cv2.morphologyEx(blue.astype(np.uint8), cv2.MORPH_OPEN, np.ones((10, 10),np.uint8)).astype(bool)
+
 # blue[:, 0:200] = False
 # blue[:, 400:] = False
 
@@ -70,13 +78,12 @@ xyz = transform_point(xyz, pose).squeeze()
 
 print('xyz', xyz)
 
-vpc, vcol = transform(depth, rgb/256, pose, k)
+vpc, vcol = transform(depth, rgb/256, pose, d415_intrinsics)
 indices = np.random.choice(vpc.shape[0], size=50000, replace=False)
 # view_pc(vpc[indices], vcol[indices])
 
 nh = hsv.copy()
 nh[~blue] = 0
-
 rgb[~blue] = 0
 
 fig, ax = plt.subplots(1, 4)
@@ -87,6 +94,7 @@ ax[3].imshow(depth)
 
 fig.set_size_inches(23, 4)
 plt.show()
+
 
 # xyz = [-0.66663341, -0.32239173,  0.20136154] # Left
 # xyz = [-0.71831174, -0.16698045,  0.20479876] # Right Just 16cm?

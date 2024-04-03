@@ -16,7 +16,7 @@ def goto(rtde_c, rtde_r):
     from gaze_utils.constants import front, mid, handoff
 
     # Move back out to front
-    rtde_c.moveJ(deg_to_rad(handoff), 1.5, 0.9, asynchronous=False)
+    rtde_c.moveJ(deg_to_rad(front), 0.3, 0.3, asynchronous=False)
     
 if __name__ == '__main__':
     ip_address='192.168.1.123'

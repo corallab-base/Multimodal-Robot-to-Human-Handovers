@@ -34,7 +34,7 @@ def group_compound_nouns(doc):
             compounds.append(compound_noun)
     return compounds
 
-def parse_sentence(sentence):
+def parse_sentence(sentence, debug=False):
     import json
     import requests 
 
@@ -59,17 +59,18 @@ def parse_sentence(sentence):
         raise Exception()
 
     # Preprocessing to remove POS terms that disconect the dependency parsing of Spacy
-    sentence = sentence.replace('on to', '')
-    sentence = sentence.replace('onto', '')
-    sentence = sentence.replace('would like to', '')
-    sentence = sentence.replace('like to', '')
+    sentence = sentence.replace('on to ', '')
+    sentence = sentence.replace('onto ', '')
+    sentence = sentence.replace('would like to ', '')
+    sentence = sentence.replace('like to ', '')
+    sentence = sentence.replace('want to ', '')
 
     doc = nlp(sentence)
 
-    # svg = displacy.render(doc, style='dep')
-
-    # output_path = Path(f"./gaze_utils/{sentence.replace(' ', '_')}.svg") 
-    # output_path.open("w", encoding="utf-8").write(svg)
+    if debug:
+        svg = displacy.render(doc, style='dep')
+        output_path = Path(f"./gaze_utils/{sentence.replace(' ', '_')}.svg") 
+        output_path.open("w", encoding="utf-8").write(svg)
 
     nouns = group_compound_nouns(doc)
 
@@ -253,6 +254,6 @@ def record_and_parse(text=None, recording_done_func=None):
     return object, part, target_holder
 
 if __name__ == "__main__":
-    record_and_parse()
-    # res = parse_sentence("Grasp the drill and hand it over but I would like to grasp the handle")
-    # print(res)
+    # record_and_parse()
+    res = parse_sentence("give me the red cup and I want to grasp the handle", debug=True)
+    print(res)

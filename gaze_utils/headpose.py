@@ -252,8 +252,9 @@ def infer(img, display_image, threshold = 0.9, viz=True):
     if viz:
         heatmap2 = cv2.resize(heatmap, (heatmap.shape[1] * 8, heatmap.shape[0] * 8))
         cv2.namedWindow('heatmap', cv2.WINDOW_KEEPRATIO)
+        cv2.setWindowProperty('heatmap',cv2.WND_PROP_FULLSCREEN,cv2.WINDOW_FULLSCREEN)
         cv2.imshow('heatmap', interpolate_image(white, display_image, heatmap2).astype(np.uint8))
-        cv2.resizeWindow('heatmap', heatmap2.shape[1], heatmap2.shape[0])
+        # cv2.resizeWindow('heatmap', heatmap2.shape[1], heatmap2.shape[0])
         cv2.waitKey(1)
 
     # plt.imshow(heatmap)

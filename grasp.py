@@ -59,7 +59,7 @@ def get_best_grasp(pred_grasps_cam, scores, hand_pcs):
     best_score = max(store.keys())
     best_grasp = store[best_score]
 
-    print("Full best grasp (cam space)", 'score:', best_score, ''.join(['\n   ' + s for s in str(best_grasp).split('\n')]))
+    # print("Full best grasp (cam space)", 'score:', best_score, ''.join(['\n   ' + s for s in str(best_grasp).split('\n')]))
 
     # Extract translation and rotations
     from scipy.spatial.transform import Rotation as R
@@ -85,7 +85,7 @@ def best_grasp(pc_full, pred_grasps_cam, scores, contact_pts, pc_colors, hand_pc
 
     import pickle
 
-    torch.save('grasp_vis_data.pickle', (pc_full, pred_grasps_cam.item(), scores.item(), hand_pcs, hand_cols, pc_colors))
+    np.savez('grasp_vis_data.npz', pc_full, pred_grasps_cam, scores, hand_pcs, hand_cols, pc_colors)
     
     return get_best_grasp(pred_grasps_cam, scores, hand_pcs if avoid_hands else None)
 
@@ -95,10 +95,9 @@ if __name__ == '__main__':
     import pickle
 
     # Run visualization in a another thread since it takes a while
-    
-    pc_full, pred_grasps_cam, scores, hand_pcs, hand_cols, pc_colors = torch.load('grasp_vis_data.pickle')
+    print('Vis grasps')
+    data = np.load('grasp_vis_data.npz', allow_pickle=True)
+    pc_full, pred_grasps_cam, scores, hand_pcs, hand_cols, pc_colors = [data[name] for name in data.files]
 
-    print(pc_colors)
-
-    visualize_grasps(pc_full, pred_grasps_cam, scores, hand_pcs, hand_cols, 
+    visualize_grasps(pc_full, pred_grasps_cam.item(), scores.item(), hand_pcs, hand_cols, 
            plot_opencv_cam=False, pc_colors=pc_colors)

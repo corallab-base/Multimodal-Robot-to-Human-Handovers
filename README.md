@@ -16,6 +16,8 @@ Add route to the remote camera (Get this issue when there are multiple network d
 sudo ip route add 192.168.1.149 dev wlp0s20f3
 ```
 
+sshpass -p corallab-151 ssh -t corallab@192.168.1.149 
+
 ## Common Issues:
 CUDA out of memory?
 ```

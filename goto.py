@@ -7,15 +7,12 @@ import numpy as np
 from robotiq_gripper import RobotiqGripper
 import rtde_control
 import rtde_receive
-from gaze_utils.constants import front
+from gaze_utils.constants import front, mid, handoff
 
 def deg_to_rad(l):
     return list(map(math.radians, l))
 
 def goto(rtde_c, rtde_r, gripper, grasp=False, handover=False):
-
-    mid = [273.93, -46.98, -131.55, -41.77, 61.43, 13.24]
-    handoff = [294.44, -95.15, -154.43, 43.15, 53.49, 13.25]
 
     print('goto 1')
     
