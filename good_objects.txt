@@ -1,0 +1,9 @@
+
+
+Robot cannot detect mug handle
+
+Do not say "give me the screwdriver by the handle" because 
+
+For totamto can, do not say "tomato soup can" or "can"
+
+"yellow block" not "block"

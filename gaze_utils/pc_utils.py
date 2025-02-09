@@ -80,6 +80,24 @@ def view_pc_o3d(pc, col=None, show=False, title=None):
 
     vis.add_geometry(pcd)
 
+    aabb = pcd.get_axis_aligned_bounding_box()
+    lines = [
+        [0, 1], [1, 7], [7, 2], [2, 0],
+        [3, 6], [6, 4], [4, 5], [5, 3]
+        # [0, 1], [1, 2], [2, 3], [3, 0],
+        # [4, 5], [5, 6], [6, 7], [7, 4],
+        # [0, 4], [1, 5], [2, 6], [3, 7]
+    ]  # Lines connecting corners of the box
+    corners = np.asarray(aabb.get_box_points())
+    line_set = o3d.geometry.LineSet(
+        points=o3d.utility.Vector3dVector(corners),
+        lines=o3d.utility.Vector2iVector(lines),
+    )
+    # Set the color of the LineSet (all lines the same color in this case)
+    colors = np.array([(1.0, 0, 0)] * len(lines))  # Color for each line
+    line_set.colors = o3d.utility.Vector3dVector(colors)
+    vis.add_geometry(line_set)
+
     opt = vis.get_render_option()
     opt.show_coordinate_frame = True
 

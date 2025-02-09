@@ -47,7 +47,7 @@ class Recorder():
                 # print('energy', energy)
                 
                 # If energy exceeds the threshold, consider it as speaking
-                if energy > 0.5e6:
+                if energy > 0.3e6:
                     speaking = True
                     stoppped_speaking_duration = 0
 

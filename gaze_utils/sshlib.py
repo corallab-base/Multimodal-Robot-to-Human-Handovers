@@ -1,22 +1,21 @@
-
-# Launch the thing
+# Imports
 import os
-import subprocess
 import time
+import subprocess
+import torch
 import numpy as np
-import paramiko
+from PIL import Image
 from gaze_utils.constants import d415_intrinsics
 
+import paramiko
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
 k = paramiko.Ed25519Key.from_private_key_file('secrets/id_ed25519')
 
 sftp = None
 
 def connect():
     global sftp
-
     print('SSH connect to corallab server...')
     ssh.connect(hostname='10.164.8.169', username='corallab-s1', pkey=k)
     sftp = ssh.open_sftp()
@@ -106,15 +105,10 @@ def get(src, dest):
         return False
 
 def get_glip(prompt, image):
-
     print("Requesting GLIP result")
-
-    from PIL import Image
-    import time
 
     imgname = 'glipimage' + str(int(100 * time.time())) + '-' + str(prompt.replace(' ', '_'))
     Image.fromarray(image).save('tmp/' + imgname + '.png')
-   
     send('tmp/' + imgname + '.png', 
          '/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/ins/' + imgname + '.png')
     send('tmp/DONE', 
@@ -126,23 +120,45 @@ def get_glip(prompt, image):
 
         if succ: break
 
-        time.sleep(0.2)
+        time.sleep(0.5)
     else:
         raise Exception("GLIP timed out 10s")
 
-    os.remove('tmp/' + imgname + '.png')
-
-    # sftp.remove(f'/media/corallab-s1/2tbhdd1/Xuyang/part-segmentation/main/outs/' + imgname + '.npz')
-
+    # os.remove('tmp/' + imgname + '.png')
     dat = np.load('tmp/dest.npz', allow_pickle=True)
     ann_image, bbox, score, labels = dat['ann_image'], dat['bbox'], dat['score'], dat['labels']
 
     print('    Got GLIP result')
 
-    # from matplotlib import pyplot as plt
-    # plt.imshow()
-    # plt.figure()
-    # plt.imshow(image)
-    # plt.pause(0.1)
+    return bbox, ann_image, score
 
-    return bbox, ann_image
+
+def get_cograsp(xyz, color, consider_hands):
+    print("Requesting CoGrasp result")
+
+    torch.save({'xyz':xyz, 'color':color, 'consider_hands':consider_hands}, 'tmp/sent_pc.pth')
+   
+    send('tmp/sent_pc.pth', 
+         '/media/corallab-s1/2tbhdd1/Xuyang/cograsp/cograsp_inputs/sent_pc.pth')
+    send('tmp/DONE', 
+         '/media/corallab-s1/2tbhdd1/Xuyang/cograsp/cograsp_inputs/DONE')
+
+    for i in range(200):
+        succ = get('/media/corallab-s1/2tbhdd1/Xuyang/cograsp/cograsp_output.pth',
+                   'tmp/cograsp_output.pth')
+
+        if succ: break
+
+        if i % 20 == 0: print('    Wait for CoGrasp')
+
+        time.sleep(0.1)
+    else:
+        raise Exception("CoGrasp timed out 40s")
+
+    os.remove('tmp/sent_pc.pth')
+
+    dat = torch.load('tmp/cograsp_output.pth')
+    grasp = dat
+
+    print('    Got CoGrasp result')
+    return grasp

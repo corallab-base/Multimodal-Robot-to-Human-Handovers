@@ -1,5 +1,8 @@
 import multiprocessing
 from pathlib import Path
+import random
+import re
+import string
 import time
 
 import torch
@@ -11,6 +14,25 @@ from gaze_utils.record_audio import Recorder
 
 # Load the English language model for spaCy
 nlp = spacy.load("en_core_web_sm")
+
+# Warm up roberta
+import json
+import requests 
+
+API_TOKEN = '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' # Don't worry - burner account
+headers = {"Authorization": f"Bearer {API_TOKEN}"}
+API_URL = "https://api-inference.huggingface.co/models/deepset/roberta-base-squad2"
+
+rando = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
+
+data = {
+    'inputs': {
+        'question': 'What object?',
+        'context': 'Did you know???? Pigeons sing in 5/4 and 17/8 time signature.' + rando
+    }
+}
+
+response = requests.post(API_URL, headers=headers, json=data)
 
 def group_compound_nouns(doc):
     compounds = []
@@ -38,16 +60,29 @@ def parse_sentence(sentence, debug=False):
     import json
     import requests 
 
+    def get_last_sentence(text):
+        # This regex pattern looks for sentences ending with '.', '!', or '?', possibly followed by whitespace,
+        # and then either the end of the string or a non-word character.
+        sentences = re.findall(r'\s*([A-Z][^.!?]*[.!?])', text.strip())
+        if sentences:
+            return sentences[-1]  # Return the last sentence
+        else:
+            return ""  # Return empty string if no sentences are found
+
+    # sentence = get_last_sentence(sentence)
+    
     API_TOKEN = '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' # Don't worry - burner account
     headers = {"Authorization": f"Bearer {API_TOKEN}"}
     API_URL = "https://api-inference.huggingface.co/models/deepset/roberta-base-squad2"
 
     data = {
         'inputs': {
-            'question': 'What object?',
+            'question': 'Object to give?',
             'context': sentence
         }
     }
+
+
 
     response = requests.post(API_URL, headers=headers, json=data)
 
@@ -67,15 +102,15 @@ def parse_sentence(sentence, debug=False):
 
     doc = nlp(sentence)
 
-    if debug:
+    if True:
         svg = displacy.render(doc, style='dep')
-        output_path = Path(f"./gaze_utils/{sentence.replace(' ', '_')}.svg") 
+        output_path = Path(f"./sens/{sentence.replace(' ', '_')}.svg") 
         output_path.open("w", encoding="utf-8").write(svg)
 
     nouns = group_compound_nouns(doc)
 
-    # print('object', object_name)
-    # print('nouns', nouns)
+    print('object', object_name)
+    print('nouns', nouns)
 
     for noun in nouns:
         if noun.find(object_name) != -1:
@@ -86,7 +121,7 @@ def parse_sentence(sentence, debug=False):
     elif len(nouns) == 0:
         part = None
     else:
-        raise Exception('Too many nouns in sentence (!=1)', sentence)
+        raise Exception('Too many nouns in sentence (!=1)', sentence, nouns)
 
     '''
     If there is a part, who should hold it? 
@@ -137,26 +172,31 @@ def parse_sentence(sentence, debug=False):
 
     return object_name, part, target_holder
 
+print('Import Whisper')
+import whisper
+whmodel = whisper.load_model("base", device="cpu")
+print("    ...Done")
 
 def parse_audio0(file="gaze_utils/2 Mustard.wav"):
-    command = \
-    'import whisper;' + \
-    'model = whisper.load_model("base", device="cpu");' + \
-    f'result = model.transcribe(\"{file}\");' + \
-    'print(result["text"])'
+    # command = \
+    # 'import whisper;' + \
+    # 'model = whisper.load_model("base", device="cpu");' + \
+    # f'result = model.transcribe(\"{file}\");' + \
+    # 'print(result["text"])'
 
-    fullcommand = f'/home/corallab/anaconda3/condabin/conda run -n whisper python -c \'{command}\' '
+    # fullcommand = f'/home/corallab/anaconda3/condabin/conda run -n whisper python -c \'{command}\' '
 
-    print(fullcommand)
+    # print(fullcommand)
 
-    import subprocess
-    result = subprocess.run(fullcommand, 
-                            shell=True, stdout=subprocess.PIPE, text=True)
+    # import subprocess
+    # result = subprocess.run(fullcommand, 
+    #                         shell=True, stdout=subprocess.PIPE, text=True)
     
-    if result.returncode != 0:
-        raise Exception("Speech transcription failed")
+    # if result.returncode != 0:
+    #     raise Exception("Speech transcription failed")
     
-    res = (str(result.stdout).strip().strip('.'))
+    result = whmodel.transcribe(f"{file}")["text"]
+    res = (str(result).strip().strip('.'))
 
     return res
 
@@ -237,23 +277,23 @@ def record_and_parse(text=None, recording_done_func=None):
         time.sleep(2)
         recording_done_func()
         
-    print('Input Sentence:', text)
+    # print('Input Sentence:', text)
     object, part, target_holder = parse_sentence(text)
 
-    if part is None:
-        print(f"    object: {object} \n    part: {part}")
-    else:
-        part = str(part)
-        if object.find(part) != -1:
-            part = None
-            print(f"    object: {object} \n    part: {part}")
-        else:
-            print(f"    object: {object} \n    part: {part} (held by {target_holder})")
+    # if part is None:
+    #     print(f"    object: {object} \n    part: {part}")
+    # else:
+    #     part = str(part)
+    #     if object.find(part) != -1:
+    #         part = None
+    #         print(f"    object: {object} \n    part: {part}")
+    #     else:
+    #         print(f"    object: {object} \n    part: {part} (held by {target_holder})")
             
 
     return object, part, target_holder
 
 if __name__ == "__main__":
     # record_and_parse()
-    res = parse_sentence("give me the red cup and I want to grasp the handle", debug=True)
+    res = parse_sentence("Give me the screwdriver and hold it by the handle", debug=True)
     print(res)

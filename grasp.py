@@ -56,6 +56,8 @@ def get_best_grasp(pred_grasps_cam, scores, hand_pcs):
             ]
 
     # Get highest score in pred_grasps_cam
+    if len(store) == 0:
+        raise Exception("No contact-graspnet candidates")
     best_score = max(store.keys())
     best_grasp = store[best_score]
 

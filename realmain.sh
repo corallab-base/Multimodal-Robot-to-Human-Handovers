@@ -1,1 +1,1 @@
-python main.py "$@" && python goto.py && python grasp.py && code robot_grasp_viz.png
+python reset.py && python main.py "$@" && python goto.py

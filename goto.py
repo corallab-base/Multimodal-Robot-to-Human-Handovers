@@ -12,47 +12,35 @@ from gaze_utils.constants import front, mid, handoff
 def deg_to_rad(l):
     return list(map(math.radians, l))
 
-def goto(rtde_c, rtde_r, gripper, grasp=False, handover=False):
-
-    print('goto 1')
-    
-
+def goto(rtde_c, rtde_r, gripper, grasp=True, handover=False):
     with open('arm_target.txt', 'r') as file:
         content = file.read()
 
     stage = ast.literal_eval(content.splitlines()[0])
     final = ast.literal_eval(content.splitlines()[1])
 
-    # Open gripper
+    # Open gripper - going to the object
+    print("Going to the object...")
     gripper.move(gripper.get_open_position(), 64, 1)
-    
-    print('goto 2')
     rtde_c.moveL(stage, 0.3, 0.3, asynchronous=False)
-
-    print('goto 3')
     rtde_c.moveL(final, 0.3, 0.3, asynchronous=False) 
     
     # Close gripper
     if grasp:
         final_pos, status = gripper.move_and_wait_for_pos(gripper.get_closed_position(), 64, 1)
-
         if status == RobotiqGripper.ObjectStatus.STOPPED_INNER_OBJECT:
             print("Gripper grasped an object")
-            # final_pos, status = gripper.move_and_wait_for_pos(gripper.get_open_position(), 64, 1)
-
         else:
-            final_pos, status = gripper.move_and_wait_for_pos(gripper.get_open_position(), 64, 1)
             print('Gripper felt nothing')
 
-    print('goto 4')
-    rtde_c.moveL(stage, 0.3, 0.3, asynchronous=False) 
 
-    # Move back out to front
-    print('goto 5')
+    print("Handing over the object...")
+    stage[2] += 0.02
+    rtde_c.moveL(stage, 0.4, 0.4, asynchronous=False) 
     rtde_c.moveJ(deg_to_rad(mid), 0.7, 0.3, asynchronous=False)
 
+
     if handover:
-        print('goto 6')
         rtde_c.moveJ(deg_to_rad(handoff), 0.7, 0.3, asynchronous=False)
         
         # Measure regular torque for 0.5s
@@ -77,7 +65,7 @@ def goto(rtde_c, rtde_r, gripper, grasp=False, handover=False):
                 break
     
 if __name__ == '__main__':
-    ip_address='192.168.1.123'
+    ip_address='192.168.1.125'
 
     rtde_c = rtde_control.RTDEControlInterface(ip_address)
     rtde_r = rtde_receive.RTDEReceiveInterface(ip_address)

@@ -27,7 +27,7 @@ export PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:50"
 RuntimeError: Timeout connecting to UR dashboard server.
 ```
 Toggle the UR5 Wired Preset off and on
-``
+```
 
 RuntimeError: One of the RTDE input registers are already in use! Currently you must disable the EtherNet/IP adapter, PROFINET or any MODBUS unit configured on the robot. This might change in the future.
 ```

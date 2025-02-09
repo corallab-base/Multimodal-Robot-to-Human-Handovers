@@ -1,47 +1,39 @@
+# Importd
+import os
+import time
 import argparse
 import multiprocessing
 import threading
-import os
-import time
+
 
 import cv2
 import torch
-
-
-from gaze_utils.realsense import RSCapture
-
-from gaze_utils.sshlib import connect as connectSSH
-
+from headpose import infer
 from mover import moveit, init as initArm
-
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+from gaze_utils.text_extraction import record_and_parse
+
 
 def wait_for_file(filename):
     while True:
         file_exists = os.path.exists(filename)
         if file_exists: break
         time.sleep(0.2)
-        
+
+
 def gaze_track(stop_gaze_tracking, display_image):
-    v_reader = RSCapture(serial_number='123122060050', dont_set_depth_preset=True)
-
     heatmap = None
-
-    for frame in v_reader:
-        color_image, depth_image, depth_frame, color_frame = frame
-
+    while True:
         # Run headpose tracking
-        heatmap = infer(color_image, display_image, viz=True)
+        heatmap = infer(display_image, viz=True)
 
-        with stop_gaze_tracking.get_lock():  # Synchronize access to the shared value
+        # Synchronize access to the shared value
+        with stop_gaze_tracking.get_lock():
             if stop_gaze_tracking.value:
-                free_model()
                 print(f"Saving heatmap to heatmap.pth")
                 torch.save(heatmap, 'heatmap.pth')
-
                 cv2.destroyAllWindows()
                 return
-
 
 def str2bool(v):
     if isinstance(v, bool):
@@ -64,8 +56,6 @@ if __name__ == "__main__":
                         help="If given, use in place of audio recording.")
 
     args = parser.parse_args()
-    
-    # connectSSH()
 
     stop_gaze_tracking = multiprocessing.Value('b', False)
 
@@ -80,23 +70,20 @@ if __name__ == "__main__":
                             args=(args.real,)
                             ).start()
 
+    print('Wait for capture...')
     wait_for_file('capture_pointcloud/front_rgb')
     front_rgb = torch.load('capture_pointcloud/front_rgb')
 
+    ui = input("Remove the wrist camera (done):")
+    time.sleep(5)
+
     if args.gaze:
         print('Importing Headpose Model...')
-        from gaze_utils.headpose import infer, free_model
-
         threading.Thread(target=gaze_track, 
                          args=(stop_gaze_tracking, front_rgb)
                          ).start()
-        
-    print('Importing SpaCy Model...')
-    from gaze_utils.text_extraction import record_and_parse
 
     objname, partname, target_holder = record_and_parse(args.prompt, recording_done_func=stop)
-
     multiprocessing.Process(target=moveit,
-                                kwargs={'real_life': args.real, 
-                                        'objname': objname, 'partname': partname, 'target_holder': target_holder}
+                                kwargs={'objname': objname, 'partname': partname, 'target_holder': target_holder}
                             ).start()

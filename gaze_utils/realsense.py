@@ -14,7 +14,7 @@ CAMERA_H = 720
 CAMERA_FPS = 15
 
 class RSCapture:
-    def __init__(self, serial_number=None, path = None, use_meters=False, preset='Default', dont_set_depth_preset=False):
+    def __init__(self, serial_number=None, path = None, use_meters=False, preset='Default', dont_set_depth_preset=False, exposure=None):
 
         # List all cameras
         ctx = rs.context()
@@ -48,29 +48,35 @@ class RSCapture:
         profile = self.pipeline.start(self.config)
 
         print(f"    Resolution is: {CAMERA_W}x{CAMERA_H} @{CAMERA_FPS} fps")
-
+        
         depth_sensor = profile.get_device().first_depth_sensor()
+
+        if exposure is None:
+            depth_sensor.set_option(rs.option.enable_auto_exposure, 1)
+        else:
+            depth_sensor.set_option(rs.option.enable_auto_exposure, 0)
+            depth_sensor.set_option(rs.option.exposure, exposure)
+
         if use_meters:
             depth_sensor.set_option(rs.option.depth_units, 0.0001)
         self.depth_scale = depth_sensor.get_depth_scale()
         print("    Depth Scale is: " , self.depth_scale)
         
-        if not dont_set_depth_preset:
-            preset_range = depth_sensor.get_option_range(rs.option.visual_preset)
+        # if not dont_set_depth_preset:
+        #     preset_range = depth_sensor.get_option_range(rs.option.visual_preset)
 
-            preset_found = False
-            for i in range(int(preset_range.max)):
-                visual_preset = depth_sensor.get_option_value_description(rs.option.visual_preset, i)
-                if visual_preset == preset:
-                    depth_sensor.set_option(rs.option.visual_preset, i)
-                    preset_found = True
-                    print("   ", visual_preset, "preset selected")
+        #     preset_found = False
+        #     for i in range(int(preset_range.max)):
+        #         visual_preset = depth_sensor.get_option_value_description(rs.option.visual_preset, i)
+        #         if visual_preset == preset:
+        #             depth_sensor.set_option(rs.option.visual_preset, i)
+        #             preset_found = True
+        #             print("   ", visual_preset, "preset selected")
 
-            if not preset_found:
-                print("   Desired preset", preset, 'not found from', preset_range)
+        #     if not preset_found:
+        #         print("   Desired preset", preset, 'not found from', preset_range)
 
-        depth_sensor.set_option(rs.option.enable_auto_exposure, 1)
-        # depth_sensor.set_option(rs.option.exposure, 100)
+        
 
         # depth_sensor.set_option(rs.option.confidence_threshold, 1) # 1 -3
         # depth_sensor.set_option(rs.option.noise_filtering, 6)

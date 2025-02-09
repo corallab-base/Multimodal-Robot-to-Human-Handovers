@@ -8,7 +8,8 @@ from gaze_utils.constants import d415_intrinsics
 import numpy as np
 import torch
 from gaze_utils.realsense import RSCapture
-from mover import moveit, init, deg_to_rad, front, depth2pc, cam_tool_offset, transform_point, view_pc, transform
+from mover import moveit, init, deg_to_rad, front, depth2pc, cam_tool_offset, transform_point, transform
+from gaze_utils.pc_utils import depth2pc
 import cv2
 
 import rtde_control
@@ -18,7 +19,7 @@ import robotiq_gripper
 def tobgr(rgb):
     return cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
 
-ip_address='192.168.1.123'
+ip_address='192.168.1.125'
 
 rtde_c = rtde_control.RTDEControlInterface(ip_address)
 rtde_r = rtde_receive.RTDEReceiveInterface(ip_address)
@@ -31,12 +32,13 @@ gripper.activate(auto_calibrate=False)
 gripper.move(gripper.get_open_position(), 64, 1)
 
 # Go to front position
-rtde_c.moveJ(deg_to_rad(front), 1.5, 0.9, asynchronous=False)
+rtde_c.moveJ(deg_to_rad(front), 1.1, 0.9, asynchronous=False)
 
 # wrist_cam = RSCapture(serial_number='044122070299', use_meters=False, preset='Default')
 
 # rgb, depth, _, _ = wrist_cam.get_frames(rotate=True)
-from remote_cam import get_image, get_depth
+# from remote_cam import get_image_depth
+from remote_cam import get_depth, get_image
 rgb, depth = get_image(), get_depth()
 rgb, depth = np.rot90(rgb, 2), np.rot90(depth, 2)
 
@@ -50,8 +52,8 @@ print('orient', [math.degrees(r) for r in orient])
 np.savez('rgb.npz', rgb, depth)
 
 dat = np.load('rgb.npz')
-rgb, depth = dat[dat.files[0]], dat[dat.files[1]]
-rgb = cv2.cvtColor(rgb, cv2.COLOR_BGR2RGB)
+bgr, depth = dat[dat.files[0]], dat[dat.files[1]]
+rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
 print('depth', depth.shape)
 
@@ -76,8 +78,10 @@ xyz = pc.mean(axis=0)
 
 xyz = transform_point(xyz, pose).squeeze()
 
+from mover import raw_to_pc
 print('xyz', xyz)
 
+raw_to_pc(depth, bgr, pose, 'dataset/calib_pc.pth', filter=False)
 vpc, vcol = transform(depth, rgb/256, pose, d415_intrinsics)
 indices = np.random.choice(vpc.shape[0], size=50000, replace=False)
 # view_pc(vpc[indices], vcol[indices])
