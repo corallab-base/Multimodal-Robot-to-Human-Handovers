@@ -13,7 +13,7 @@ This code release contains the software for our pipeline as well as analysis dat
 Our pipeline is structured with a portable device running the realtime portion (sensor readings, fast computations, UR5 interfacing) and 
 a larger compute machine handling the ![GLIP](https://github.com/microsoft/GLIP) model inference and ![CoGrasp](https://github.com/corallab-base/CoGrasp).
 
-The server code can be found as a docker image ![here]
+The server code can be found as a docker image ![here](https://drive.google.com/drive/folders/1_jp4ZWZ7v7afTPOqLqlj6_V52kXOu0jv?usp=sharing)
 
 ## Running
 ```python
